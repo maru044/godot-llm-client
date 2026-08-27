@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tools/new_game_clean_test.gd" id="1_gc"]
+
+[node name="NewGameCleanTest" type="Node"]
+script = ExtResource("1_gc")

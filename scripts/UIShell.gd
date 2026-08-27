@@ -1235,6 +1235,10 @@ func _on_start_game() -> void:
 	var sm = get_node_or_null("/root/SaveManager")
 	if sm:
 		sm.create_new_game()
+	# 显式强制 DataManager 清缓存并重载 temp_run（时序无关，避免残留旧存档角色）
+	var dm = get_node_or_null("/root/DataManager")
+	if dm:
+		dm.reload_characters()
 	# 清空内存中的会话历史，避免旧记忆影响新游戏
 	var llm = get_node_or_null("/root/LLMClient")
 	if llm:

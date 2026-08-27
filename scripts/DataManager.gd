@@ -21,9 +21,14 @@ func _ready() -> void:
 
 func _on_save_changed(save_id: String) -> void:
 	print("[DataManager] 存档已切换，开始重载数据...")
+	reload_characters()
+	EventBus.roster_updated.emit()
+
+
+## 强制清空缓存并从当前保存路径重新加载（开始新游戏时调用，时序无关）
+func reload_characters() -> void:
 	_characters_cache.clear()
 	_load_all_characters()
-	EventBus.roster_updated.emit()
 
 
 ## ==================================================
