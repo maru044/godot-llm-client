@@ -247,15 +247,7 @@ func _build_chat_screen() -> void:
 	scroll.add_child(msg_box)
 	_msg_box = msg_box
 
-	# 5 条示例对话（与 HTML 一致）
-	_add_chat_message(msg_box, "char", "喵哈哈，Master 终于来了~ 今天想玩点什么？世界观设定我们已经聊了不少哦！")
-	_add_chat_message(msg_box, "user", "今天我想继续上次的海岛别墅设定，Miku 有什么新点子吗？")
-	_add_chat_message(msg_box, "char",
-		"唔…让我想想~ 上次我们说到别墅二楼的主卧室有个超大的圆形床呢。\n\n要不今天我们给花园的废墟区加点料？比如月光下会发光的古代遗迹，很适合偶遇新角色~",
-		{"roll": "🎲 检定 45 → 成功"})
-	_add_chat_message(msg_box, "user", "好呀，那就让它变成一个邂逅场景吧！")
-	_add_chat_message(msg_box, "char",
-		"OKnya！那就这么定了，我会把它写进世界书里~ 黄昏时分的遗迹，远处传来隐约的歌声，Master 走近一看……是一位从未见过的少女，正对着月光轻轻哼唱呢。\n\n少女似乎察觉到了脚步声，缓缓回过头来，银色的发丝在月光下微微发亮。啊，Master，我们是不是邂逅了一个了不得的角色呀？")
+	# 不再放示例假气泡；聊天页消息由真实对话/读档动态生成
 
 	# ------ 输入栏 ------
 	var input_bar := _glass(18, 14)
@@ -963,8 +955,13 @@ func _on_api_save() -> void:
 	close_overlay("overlay-api")
 
 ## 打开 user:// 数据目录（资源管理器）
+## 注意：OS.shell_open 需要真实绝对路径，不能用虚拟 user:// 路径
 func _on_open_user_dir() -> void:
-	OS.shell_open("user://")
+	var abs := ProjectSettings.globalize_path("user://")
+	if abs != "":
+		OS.shell_open(abs)
+	else:
+		toast("无法定位 user 目录")
 
 # ================= 存档槽位 =================
 func _refresh_save_slots() -> void:
@@ -972,8 +969,18 @@ func _refresh_save_slots() -> void:
 	var slots: VBoxContainer = ov.find_child("SlotsBox", true, false)
 	for child in slots.get_children():
 		child.queue_free()
-	for i in range(FAKE_SLOTS.size()):
-		slots.add_child(_make_save_slot(i, FAKE_SLOTS[i]))
+	# 从 SaveManager 读取真实槽位数据（空槽位于多 slot 对应位置返回 null）
+	var sm = get_node_or_null("/root/SaveManager")
+	if sm == null:
+		return
+	var slot_infos = sm.get_slots_info()
+	if slot_infos.size() > 0:
+		for i in range(slot_infos.size()):
+			slots.add_child(_make_save_slot(i, slot_infos[i]))
+	else:
+		# 兜底：至少显示 MAX_SLOTS 个槽位
+		for i in range(SaveManagerClass.MAX_SLOTS):
+			slots.add_child(_make_save_slot(i, null))
 
 func _make_save_slot(idx: int, slot) -> Control:
 	var row := PanelContainer.new()
@@ -997,7 +1004,9 @@ func _make_save_slot(idx: int, slot) -> Control:
 	h.add_child(info)
 
 	if slot:
-		info.text = "#%d  |  Day %d  |  %s" % [idx + 1, slot["day"], slot["created"]]
+		var created = String(slot.get("created_at", "未知"))
+		var msg_count = int(slot.get("msg_count", 0))
+		info.text = "#%d  |  %s  |  %d 条消息" % [idx + 1, created, msg_count]
 	else:
 		info.text = "#%d  |  [color=#6d8cae][ 空槽位 ][/color]" % (idx + 1)
 

@@ -126,6 +126,10 @@ func save_game_to_slot(slot_index: int, game_state: Dictionary = {}, chat_histor
 	var slot_id = "slot_%d" % (slot_index + 1)
 	var save_path = SAVES_DIR + slot_id + "/"
 
+	# 确保 temp_run 存在，否则写 metadata 和复制都会失败
+	if not DirAccess.dir_exists_absolute(TEMP_RUN_DIR):
+		DirAccess.make_dir_recursive_absolute(TEMP_RUN_DIR)
+
 	var meta = {
 		"created_at": Time.get_datetime_string_from_system(),
 		"game_state": game_state,
