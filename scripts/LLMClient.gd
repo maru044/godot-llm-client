@@ -182,16 +182,22 @@ func _trigger_react_loop(loop_count: int) -> void:
 			print("[LLMClient] 响应体: ", body.get_string_from_utf8())
 		EventBus.system_error_occurred.emit("HTTP %d: %s" % [response_code, hint])
 
-		# 自动重试机制
-		if loop_count < 5 and response_code in [0, 400, 429, 500, 502, 503]:
+		# 区分「可重试」与「不可恢复」错误
+		# 可重试：网络断 / 限流 / 服务器故障（临时性，值得退避重试）
+		# 不可恢复：400 参数错 / 401 key 无效 / 404 地址错（重试无意义，立即失败）
+		var retryable_codes := [0, 429, 500, 502, 503]
+		var is_retryable: bool = response_code in retryable_codes
+
+		if is_retryable and loop_count < 5:
 			print("[LLMClient] 正在进行重试 %d/5 ..." % (loop_count + 1))
-			if response_code == 400 and loop_count >= 3:
-				_cleanup_failed_round()
 			_http_request.cancel_request()
 			await get_tree().create_timer(1.0).timeout
 			_trigger_react_loop(loop_count + 1)
 			return
 
+		# 无法重试或重试耗尽：清理失败轮次，保证下次发送基于干净历史
+		print("[LLMClient] ❌ 最终失败（不可恢复/重试耗尽），清理失败轮次")
+		_cleanup_failed_round()
 		_is_requesting = false
 		return
 
@@ -215,25 +221,27 @@ func _trigger_react_loop(loop_count: int) -> void:
 	if message.has("tool_calls") and typeof(message["tool_calls"]) == TYPE_ARRAY and message["tool_calls"].size() > 0:
 		has_tools = true
 
-	# 1. 提取并打印 CoT 思维链（如果存在）
+	# 1. 提取并打印 CoT 思维链（如果模型正文里确有 <thinking> 标签）
 	if has_content:
 		var reply_text = message["content"]
-		var full_text = PREFILL_MAGIC + reply_text
-
-		var thinking_start = full_text.find("<thinking>")
-		var thinking_end = full_text.find("</thinking>")
-		if thinking_start != -1:
-			var actual_start = thinking_start + 10  # len("<thinking>")
-			var end_pos = thinking_end if thinking_end != -1 else len(full_text)
-			var thinking = full_text.substr(actual_start, end_pos - actual_start).strip_edges()
-			if thinking != "":
+		# 用模型实际返回的 reply_text 检测，避免把 prefill 自带的 <thinking> 当成思维链
+		var t_start = reply_text.find("<thinking>")
+		var t_end = reply_text.find("</thinking>")
+		# prefill 标记（若模型没有真正输出 thinking，则跳过 prefill 部分）
+		var prefill_marker = "\n<thinking>\nOK，超级歌姬上线！"
+		if t_start != -1 and t_end != -1:
+			var actual_start = t_start + len("<thinking>")
+			var thinking = reply_text.substr(actual_start, t_end - actual_start).strip_edges()
+			if thinking != "" and not thinking.begins_with("OK，超级歌姬"):
 				print("[🧠 CoT] ", thinking)
 
 		# 提取纯正文（去掉 thinking 标签对）
 		var body_text = reply_text
-		if thinking_start != -1 and thinking_end != -1:
-			body_text = reply_text.replace("<thinking>" + full_text.substr(thinking_start + 10, thinking_end - thinking_start - 10) + "</thinking>", "").strip_edges()
+		if t_start != -1 and t_end != -1:
+			body_text = reply_text.substr(0, t_start) + reply_text.substr(t_end + len("</thinking>"))
 		body_text = body_text.replace("<content>", "").replace("</content>", "").strip_edges()
+		# 去掉 prefill 残留的开头标记
+		body_text = body_text.replace(prefill_marker, "")
 		if body_text != "":
 			print("[💬 正文] ", body_text)
 

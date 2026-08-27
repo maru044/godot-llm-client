@@ -850,9 +850,9 @@ func _on_llm_finished(content: String) -> void:
 		_add_chat_message(_msg_box, "char", content)
 		_scroll_to_bottom()
 
-## 系统错误：弹出 Toast
+## 系统错误：弹出红色 Toast
 func _on_system_error(msg: String) -> void:
-	toast(msg)
+	toast(msg, true)
 
 ## 滚动到消息区底部
 func _scroll_to_bottom() -> void:
@@ -884,13 +884,13 @@ func open_save_panel(mode: String) -> void:
 	_refresh_save_slots()
 	open_overlay("overlay-save")
 
-func toast(text: String) -> void:
+func toast(text: String, is_error: bool = false) -> void:
 	var t := Label.new()
 	t.text = text
 	t.add_theme_font_override("font", UI.font(14, 400))
 	t.add_theme_font_size_override("font_size", 14)
 	t.add_theme_color_override("font_color", Color.WHITE)
-	t.add_theme_stylebox_override("normal", UI.toast_box())
+	t.add_theme_stylebox_override("normal", UI.error_toast_box() if is_error else UI.toast_box())
 	t.modulate = Color(1, 1, 1, 0)
 	t.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	t.position = Vector2(960 - 220, 990)

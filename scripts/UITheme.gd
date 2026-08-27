@@ -228,3 +228,7 @@ static func bubble_user() -> StyleBoxFlat:
 ## Toast
 static func toast_box() -> StyleBoxFlat:
 	return _flat(Color(0.16, 0.28, 0.42, 0.92), 999, Color(1, 1, 1, 0.25), 1, Color(0, 0, 0, 0.2), 8, 16, 16, 9, 9)
+
+## 错误 Toast（红色底，用于 system_error_occurred）
+static func error_toast_box() -> StyleBoxFlat:
+	return _flat(Color(0.72, 0.18, 0.16, 0.94), 999, Color(1, 0.9, 0.9, 0.4), 1, Color(0, 0, 0, 0.25), 8, 16, 16, 9, 9)
