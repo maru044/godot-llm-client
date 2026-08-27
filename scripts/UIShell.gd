@@ -972,9 +972,13 @@ func _on_api_save() -> void:
 	var cm = get_node_or_null("/root/ConfigManager")
 	if cm == null:
 		return
-	# 若用户切换了预设 Tab，保存时同步 active_api
+	# 若用户切换了预设 Tab，保存时同步 active_api 及其模型固有属性
 	if _api_selected_key != "":
 		cm.active_api = _api_selected_key
+		var p: Dictionary = cm.presets.get(_api_selected_key, {})
+		if not p.is_empty():
+			cm.thinking_disabled = p.get("thinking_disabled", false)
+			cm.supports_vision = p.get("supports_vision", true)
 	if _api_url_edit:
 		cm.api_url = _api_url_edit.text.strip_edges()
 	if _api_key_edit:

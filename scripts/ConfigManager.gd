@@ -72,9 +72,10 @@ func load_config() -> void:
 	if api_url.is_empty() or model.is_empty():
 		apply_preset(active_api)
 
-	# thinking_disabled 是模型固有属性，按当前预设兜底（即便旧 cfg 无该字段）
+	# thinking_disabled / supports_vision 是模型固有属性，按当前预设兜底（即便旧 cfg 有旧值）
 	var p: Dictionary = presets.get(active_api, presets["gemini"])
 	thinking_disabled = p.get("thinking_disabled", thinking_disabled)
+	supports_vision = p.get("supports_vision", supports_vision)
 
 
 func save_config() -> void:
