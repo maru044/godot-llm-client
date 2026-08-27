@@ -18,6 +18,26 @@ var _msg_box: VBoxContainer
 var _input_line: LineEdit
 var _model_reply_count: int = 0    # 当前模型回复槽位，便于追加
 
+# --- 预设面板运行期引用 ---
+var _preset_list_container: VBoxContainer          # 列表容器（动态生成）
+var _preset_title_lbl: Label                        # 编辑区标题
+var _preset_depth_edit: LineEdit                    # depth 输入
+var _preset_name_edit: LineEdit                     # name 输入
+var _preset_body_edit: TextEdit                     # 正文编辑
+var _preset_selected_file: String = ""              # 当前选中的文件
+
+# --- 角色卡面板运行期引用 ---
+var _char_list_container: VBoxContainer             # 角色列表容器
+var _char_detail_vbox: VBoxContainer                # 详情区容器
+var _selected_char_id: String = ""                  # 当前选中角色 id
+
+# --- API 配置弹窗运行期引用 ---
+var _api_url_edit: LineEdit
+var _api_key_edit: LineEdit
+var _api_model_edit: LineEdit
+var _api_temp_edit: LineEdit
+var _api_topp_edit: LineEdit
+
 const FAKE_SLOTS: Array = [
 	{"day": 3, "created": "2026-08-25 21:14"},
 	null,
@@ -124,7 +144,7 @@ func _build_title_screen() -> void:
 	menu.add_child(b_load)
 
 	var b_user := UI.button("打开 user 文件夹", false, false, 17, 15, 34, 170)
-	b_user.pressed.connect(func(): toast("（占位）打开 user 文件夹"))
+	b_user.pressed.connect(_on_open_user_dir)
 	menu.add_child(b_user)
 
 	var b_api := UI.button("API 配置", false, false, 17, 15, 34, 170)
@@ -387,18 +407,17 @@ func _build_overlay_preset() -> void:
 	var list := UI.glass_panel_static(320, 0, 12)
 	layout.add_child(list)
 	var lv := VBoxContainer.new()
+	lv.name = "PresetList"
 	lv.add_theme_constant_override("separation", 8)
 	list.add_child(lv)
 	lv.add_child(UI.label("预设文件", 15, Palette.BA_DEEP, 700))
-
-	_add_preset_item(lv, "开篇伪装对话", "depth 00", true)
-	_add_preset_item(lv, "Miku 角色信息", "depth 10", false)
-	_add_preset_item(lv, "世界规则", "depth 20", false)
-	_add_preset_item(lv, "末尾格式要求", "depth 90", false)
+	_preset_list_container = lv
 
 	var b_new := UI.button("＋ 新建条目", false, false, 13, 9, 14)
-	b_new.pressed.connect(func(): toast("（占位）新建：弹窗填写名称/深度"))
+	b_new.pressed.connect(_on_preset_new)
 	lv.add_child(b_new)
+
+	_refresh_preset_list()
 
 	var edit := UI.glass_panel_static(0, 0, 12)
 	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -407,33 +426,41 @@ func _build_overlay_preset() -> void:
 	ev.add_theme_constant_override("separation", 10)
 	edit.add_child(ev)
 
-	ev.add_child(UI.label("Miku 角色信息", 16, Palette.BA_DEEP, 700))
+	_preset_title_lbl = UI.label("（选择条目后编辑）", 16, Palette.BA_DEEP, 700)
+	ev.add_child(_preset_title_lbl)
 
 	var fm := HBoxContainer.new()
 	fm.add_theme_constant_override("separation", 10)
 	ev.add_child(fm)
-	fm.add_child(_field("depth", "10", 180))
-	fm.add_child(_field("name", "Miku 角色信息", 480))
+	var depth_box := _field("depth", "0", 180)
+	fm.add_child(depth_box)
+	_preset_depth_edit = depth_box.get_meta("edit") as LineEdit
+	var name_box := _field("name", "新条目", 480)
+	fm.add_child(name_box)
+	_preset_name_edit = name_box.get_meta("edit") as LineEdit
 
-	var body := RichTextLabel.new()
+	# 正文编辑器：TextEdit（可编辑)
+	var body := TextEdit.new()
 	body.name = "BodyEditor"
-	body.bbcode_enabled = true
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.scroll_active = true
-	body.add_theme_font_override("normal_font", UI.font(15, 400, true))
-	body.add_theme_font_size_override("normal_font_size", 15)
-	body.add_theme_color_override("default_color", Palette.BA_TEXT)
+	body.add_theme_font_override("font", UI.font(15, 400, true))
+	body.add_theme_font_size_override("font_size", 15)
+	body.add_theme_color_override("font_color", Palette.BA_TEXT)
 	body.add_theme_stylebox_override("normal", UI.body_editor_box())
-	body.text = "[color=#5ea7ff]### 身份与种族[/color]\nAI 助手 · 虚拟偶像（初音未来）\n\n[color=#5ea7ff]### 性格[/color]\n[color=#5ea7ff]### 能力[/color]\n【打破第四面墙】系统管理员权限\n【欲梦编织】性癖世界沙盒\n\n[color=#5ea7ff]### 禁区[/color]\n禁止不可逆死亡 / 永久伤害 / 精神崩溃"
+	body.text = ""
+	body.placeholder_text = "在此输入提示词正文..."
+	body.wrap_mode = 1  # TextEdit.LineWrappingMode.WRAP_WORD
 	ev.add_child(body)
+	_preset_body_edit = body
 
 	var actions := HBoxContainer.new()
 	actions.alignment = BoxContainer.ALIGNMENT_END
 	ev.add_child(actions)
 	var b_save := UI.button("保存", true, false, 13, 9, 20)
-	b_save.pressed.connect(func(): toast("（占位）保存到 user 当前版本目录"))
+	b_save.pressed.connect(_on_preset_save)
 	actions.add_child(b_save)
 
+## 构建带 label 的输入框，返回 VBoxContainer；LineEdit 存于 box 的 meta "edit"
 func _field(label_text: String, value: String, min_w: float) -> VBoxContainer:
 	var box := VBoxContainer.new()
 	box.custom_minimum_size = Vector2(min_w, 0)
@@ -450,9 +477,31 @@ func _field(label_text: String, value: String, min_w: float) -> VBoxContainer:
 	le.add_theme_stylebox_override("normal", UI.input_box(false, 8, 9, 12))
 	le.add_theme_stylebox_override("focus", UI.input_box(true, 8, 9, 12))
 	box.add_child(le)
+	box.set_meta("edit", le)
 	return box
 
-func _add_preset_item(list: VBoxContainer, name: String, sub: String, active: bool) -> void:
+## 刷新预设列表：从 PromptSchema.list_entries 动态生成（按 depth 排序）
+func _refresh_preset_list() -> void:
+	if _preset_list_container == null:
+		return
+	for child in _preset_list_container.get_children():
+		if child is Button:
+			child.queue_free()
+	var ps = get_node_or_null("/root/PromptSchema")
+	if ps == null:
+		return
+	var entries = ps.list_entries()
+	for e in entries:
+		var file: String = e.get("file", "")
+		var name: String = e.get("name", file)
+		var depth: int = int(e.get("depth", 0))
+		var active: bool = (file == _preset_selected_file)
+		var item := _make_preset_list_item(name, "depth %02d" % depth, active, file)
+		_preset_list_container.add_child(item)
+
+
+## 生成一个预设列表项
+func _make_preset_list_item(name: String, sub: String, active: bool, file: String) -> Button:
 	var item := Button.new()
 	item.focus_mode = Control.FOCUS_NONE
 	item.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -461,7 +510,6 @@ func _add_preset_item(list: VBoxContainer, name: String, sub: String, active: bo
 	item.add_theme_stylebox_override("hover", UI.list_item(active, true))
 	item.add_theme_stylebox_override("pressed", UI.list_item(active))
 	item.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	list.add_child(item)
 	var h := HBoxContainer.new()
 	h.set_anchors_preset(Control.PRESET_FULL_RECT)
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -474,7 +522,80 @@ func _add_preset_item(list: VBoxContainer, name: String, sub: String, active: bo
 	var lock := UI.label("●", 12, Palette.BA_BLUE, 400)
 	lock.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	h.add_child(lock)
-	item.pressed.connect(func(): toast("（占位）编辑：" + name))
+	item.pressed.connect(func(): _on_preset_select(file))
+	return item
+
+# ================= 预设面板 · 动作 =================
+
+## 选中列表项，加载条目到编辑器
+func _on_preset_select(file: String) -> void:
+	var ps = get_node_or_null("/root/PromptSchema")
+	if ps == null or _preset_body_edit == null:
+		return
+	var body = ps.get_entry_body(file)
+	if body.is_empty():
+		return
+	_preset_selected_file = file
+	if _preset_title_lbl:
+		_preset_title_lbl.text = String(body.get("name", file))
+	if _preset_name_edit:
+		_preset_name_edit.text = String(body.get("name", file))
+	if _preset_depth_edit:
+		_preset_depth_edit.text = str(int(body.get("depth", 0)))
+	if _preset_body_edit:
+		_preset_body_edit.text = String(body.get("content", ""))
+	_refresh_preset_list()
+
+## 保存当前条目（有选中文件=更新；无选中文件=新建）
+func _on_preset_save() -> void:
+	var ps = get_node_or_null("/root/PromptSchema")
+	if ps == null:
+		return
+	if _preset_selected_file == "":
+		# 新建模式：创建新条目
+		_create_entry_from_editor()
+		return
+	var name = _preset_name_edit.text if _preset_name_edit else ""
+	var depth = _preset_depth_edit.text.strip_edges().to_int() if _preset_depth_edit else 0
+	var content = _preset_body_edit.text if _preset_body_edit else ""
+	var ok = ps.update_entry(_preset_selected_file, name, depth, "system", content)
+	toast("已保存预设" if ok else "保存失败")
+	if ok:
+		_refresh_preset_list()
+
+## 新建条目：弹窗输入名称+深度
+func _on_preset_new() -> void:
+	var ps = get_node_or_null("/root/PromptSchema")
+	if ps == null:
+		return
+	# 直接进入编辑模式新建：清空编辑器，提示在新条目输入名称/深度
+	_preset_selected_file = ""
+	_preset_title_lbl.text = "（新条目：填写名称与深度后保存）"
+	_preset_name_edit.text = ""
+	_preset_depth_edit.text = "0"
+	_preset_body_edit.text = ""
+	_preset_name_edit.grab_focus()
+	toast("新建：填写名称和深度后点击保存")
+
+## 新建实际的保存动作（按名称+深度自动填充文件头，role 默认 system）
+## 由 _on_preset_save 在无选中文件时触发新建
+func _create_entry_from_editor() -> void:
+	var ps = get_node_or_null("/root/PromptSchema")
+	if ps == null:
+		return
+	var name = _preset_name_edit.text.strip_edges() if _preset_name_edit else ""
+	if name == "":
+		toast("新建条目需先填写名称")
+		return
+	var depth = _preset_depth_edit.text.strip_edges().to_int() if _preset_depth_edit else 0
+	var content = _preset_body_edit.text if _preset_body_edit else ""
+	var file = ps.create_entry(name, depth, "system", content)
+	if file != "":
+		toast("已创建条目: " + name)
+		_preset_selected_file = file
+		_refresh_preset_list()
+	else:
+		toast("创建失败")
 
 # ================= 角色卡面板 =================
 func _build_overlay_char() -> void:
@@ -524,56 +645,48 @@ func _build_overlay_char() -> void:
 	var list := UI.glass_panel_static(300, 0, 12)
 	layout.add_child(list)
 	var lv := VBoxContainer.new()
+	lv.name = "CharList"
 	lv.add_theme_constant_override("separation", 8)
 	list.add_child(lv)
 	lv.add_child(UI.label("角色列表", 15, Palette.BA_DEEP, 700))
-
-	_add_char_item(lv, "M", "Miku", "虚拟偶像", true)
-	_add_char_item(lv, "S", "沙耶", "修女", false)
-	_add_char_item(lv, "L", "凛音", "忍者", false)
+	_char_list_container = lv
 
 	var detail := UI.glass_panel_static(0, 0, 12)
 	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	layout.add_child(detail)
 	var dv := VBoxContainer.new()
+	dv.name = "CharDetail"
 	dv.add_theme_constant_override("separation", 12)
 	detail.add_child(dv)
+	_char_detail_vbox = dv
 
-	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 14)
-	dv.add_child(head)
-	var av := UI.avatar("M", Palette.GRAD_BLUE_FROM, Palette.GRAD_BLUE_TO, 60, 16, 26)
-	av.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	head.add_child(av)
-	var hb := VBoxContainer.new()
-	head.add_child(hb)
-	hb.add_child(UI.label("Miku · 初音未来", 24, Palette.BA_DEEP, 800))
-	hb.add_child(UI.label("身份：AI助手 / 种族：虚拟偶像 · 管理员权限", 13, Palette.BA_TEXT_DIM, 400))
+	_refresh_char_list()
 
-	var stats := HBoxContainer.new()
-	stats.add_theme_constant_override("separation", 10)
-	dv.add_child(stats)
-	for s in [["80", "智力 INT"], ["75", "魅力 CHA"], ["60", "感知 WIS"]]:
-		var cell := PanelContainer.new()
-		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		cell.add_theme_stylebox_override("panel", UI.stat_cell())
-		stats.add_child(cell)
-		var cb := VBoxContainer.new()
-		cb.alignment = BoxContainer.ALIGNMENT_CENTER
-		cell.add_child(cb)
-		var v := UI.label(s[0], 20, Palette.BA_BLUE, 800)
-		v.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		cb.add_child(v)
-		var k := UI.label(s[1], 12, Palette.BA_TEXT_DIM, 400)
-		k.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		cb.add_child(k)
+## 刷新角色列表：从 DataManager 动态读取，点击加载详情
+func _refresh_char_list() -> void:
+	if _char_list_container == null:
+		return
+	for child in _char_list_container.get_children():
+		if child is Button:
+			child.queue_free()
+	var dm = get_node_or_null("/root/DataManager")
+	if dm == null:
+		return
+	var headers = dm.get_all_characters()
+	for h in headers:
+		var cid: String = h.get("id", "")
+		var name: String = h.get("name", "未知")
+		var race: String = h.get("race", "")
+		var active: bool = (cid == _selected_char_id)
+		var item := _make_char_list_item(cid, name, race, active)
+		_char_list_container.add_child(item)
+	# 默认选中第一个（若有）
+	if headers.size() > 0 and _selected_char_id == "":
+		_on_char_select(String(headers[0].get("id", "")))
 
-	dv.add_child(_section("### 性格与深层性癖",
-		"吐槽式对话 + 萌 + 高性能。辅助型，自慰展示癖，侍奉以口交/手交为主，对直接性交保有贞操。"))
-	dv.add_child(_section("### 背景与战斗特质",
-		"作为系统管理员维护乐园运行，擅长沙盒管理。战斗中倾向于辅助与支援位。"))
 
-func _add_char_item(list: VBoxContainer, avatar_char: String, name: String, race: String, active: bool) -> void:
+## 生成单个角色列表项
+func _make_char_list_item(cid: String, name: String, race: String, active: bool) -> Button:
 	var item := Button.new()
 	item.focus_mode = Control.FOCUS_NONE
 	item.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -582,20 +695,64 @@ func _add_char_item(list: VBoxContainer, avatar_char: String, name: String, race
 	item.add_theme_stylebox_override("hover", UI.list_item(active, true))
 	item.add_theme_stylebox_override("pressed", UI.list_item(active))
 	item.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	list.add_child(item)
 	var h := HBoxContainer.new()
 	h.set_anchors_preset(Control.PRESET_FULL_RECT)
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_theme_constant_override("separation", 10)
 	item.add_child(h)
-	var av := UI.avatar(avatar_char, Palette.GRAD_BLUE_FROM, Palette.GRAD_BLUE_TO, 34, 9, 14)
+	var initial := String(name).substr(0, 1).to_upper()
+	var av := UI.avatar(initial, Palette.GRAD_BLUE_FROM, Palette.GRAD_BLUE_TO, 34, 9, 14)
 	av.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	h.add_child(av)
 	var vb := VBoxContainer.new()
 	h.add_child(vb)
 	vb.add_child(UI.label(name, 14, Palette.BA_TEXT, 400))
-	vb.add_child(UI.label(race, 12, Palette.BA_TEXT_DIM, 400))
-	item.pressed.connect(func(): toast("（占位）查看角色：" + name))
+	vb.add_child(UI.label(race if race != "" else "角色", 12, Palette.BA_TEXT_DIM, 400))
+	item.pressed.connect(func(): _on_char_select(cid))
+	return item
+
+
+## 选中角色，加载详情（header + 正文）
+func _on_char_select(cid: String) -> void:
+	var dm = get_node_or_null("/root/DataManager")
+	if dm == null or _char_detail_vbox == null:
+		return
+	_selected_char_id = cid
+	# 清空详情
+	for child in _char_detail_vbox.get_children():
+		child.queue_free()
+
+	var c = dm.get_character(cid)
+	if c.is_empty():
+		_char_detail_vbox.add_child(UI.label("（未找到该角色）", 14, Palette.BA_TEXT_DIM, 400))
+		_refresh_char_list()
+		return
+	var header: Dictionary = c.get("header", {})
+	var body: String = c.get("body", "")
+	var name: String = header.get("name", cid)
+	var race: String = header.get("race", "")
+	var cls: String = header.get("class", "")
+
+	# 头部
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 14)
+	_char_detail_vbox.add_child(head)
+	var initial := String(name).substr(0, 1).to_upper()
+	var av := UI.avatar(initial, Palette.GRAD_BLUE_FROM, Palette.GRAD_BLUE_TO, 60, 16, 26)
+	av.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(av)
+	var hb := VBoxContainer.new()
+	head.add_child(hb)
+	hb.add_child(UI.label(name, 24, Palette.BA_DEEP, 800))
+	hb.add_child(UI.label("种族：%s / 职业：%s / ID:%s" % [race if race != "" else "未知", cls if cls != "" else "未知", cid], 13, Palette.BA_TEXT_DIM, 400))
+
+	# 正文分栏（若 body 有内容，按 ### 分栏展示）
+	if body.strip_edges() != "":
+		_char_detail_vbox.add_child(_section("角色正文", body))
+	else:
+		_char_detail_vbox.add_child(UI.label("（该角色暂无正文内容）", 14, Palette.BA_TEXT_DIM, 400))
+
+	_refresh_char_list()
 
 func _section(title: String, body: String) -> VBoxContainer:
 	var vb := VBoxContainer.new()
@@ -721,17 +878,27 @@ func _build_overlay_api() -> void:
 		tb.pressed.connect(func(): _switch_api_tab(tabs, tb))
 		tabs.add_child(tb)
 
-	vbox.add_child(_field("API URL", "https://gcli.ggchan.dev/v1/chat/completions", 0))
-	vbox.add_child(_field("API Key", "", 0))
-	vbox.add_child(_field("模型", "gemini-3.1-pro-preview", 0))
+	var url_box := _field("API URL", "", 0)
+	vbox.add_child(url_box)
+	_api_url_edit = url_box.get_meta("edit") as LineEdit
+	var key_box := _field("API Key", "", 0)
+	vbox.add_child(key_box)
+	_api_key_edit = key_box.get_meta("edit") as LineEdit
+	var model_box := _field("模型", "", 0)
+	vbox.add_child(model_box)
+	_api_model_edit = model_box.get_meta("edit") as LineEdit
 
 	var h2 := HBoxContainer.new()
 	h2.add_theme_constant_override("separation", 10)
 	vbox.add_child(h2)
-	h2.add_child(_field("温度", "1.3", 300))
-	h2.add_child(_field("Top P", "0.88", 300))
+	var temp_box := _field("温度", "", 300)
+	h2.add_child(temp_box)
+	_api_temp_edit = temp_box.get_meta("edit") as LineEdit
+	var topp_box := _field("Top P", "", 300)
+	h2.add_child(topp_box)
+	_api_topp_edit = topp_box.get_meta("edit") as LineEdit
 
-	var note := UI.label("配置将保存到 user://config.cfg（占位说明，仅作美术参考，无实际保存功能）",
+	var note := UI.label("配置将保存/加载自 user://config.cfg",
 		12, Palette.BA_TEXT_DIM, 400)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(note)
@@ -743,8 +910,11 @@ func _build_overlay_api() -> void:
 	b_cancel.pressed.connect(func(): close_overlay("overlay-api"))
 	actions.add_child(b_cancel)
 	var b_save := UI.button("保存", true, false, 13, 9, 20)
-	b_save.pressed.connect(func(): close_overlay("overlay-api"))
+	b_save.pressed.connect(_on_api_save)
 	actions.add_child(b_save)
+
+	# 打开面板时预填当前配置
+	_prefill_api_fields()
 
 func _switch_api_tab(tabs: HBoxContainer, clicked: Button) -> void:
 	for child in tabs.get_children():
@@ -752,6 +922,49 @@ func _switch_api_tab(tabs: HBoxContainer, clicked: Button) -> void:
 			var active := child == clicked
 			child.add_theme_stylebox_override("normal", UI.api_tab(active))
 			child.add_theme_stylebox_override("pressed", UI.api_tab(active))
+
+## 打开弹窗时从 ConfigManager 预填字段
+func _prefill_api_fields() -> void:
+	var cm = get_node_or_null("/root/ConfigManager")
+	if cm == null:
+		return
+	if _api_url_edit:
+		_api_url_edit.text = cm.api_url
+	if _api_key_edit:
+		_api_key_edit.text = cm.api_key
+	if _api_model_edit:
+		_api_model_edit.text = cm.model
+	if _api_temp_edit:
+		_api_temp_edit.text = str(cm.api_temp)
+	if _api_topp_edit:
+		_api_topp_edit.text = str(cm.api_top_p)
+
+## 保存配置到 ConfigManager 并落盘
+func _on_api_save() -> void:
+	var cm = get_node_or_null("/root/ConfigManager")
+	if cm == null:
+		return
+	if _api_url_edit:
+		cm.api_url = _api_url_edit.text.strip_edges()
+	if _api_key_edit:
+		cm.api_key = _api_key_edit.text.strip_edges()
+	if _api_model_edit:
+		cm.model = _api_model_edit.text.strip_edges()
+	if _api_temp_edit:
+		cm.api_temp = _api_temp_edit.text.strip_edges().to_float()
+	if _api_topp_edit:
+		cm.api_top_p = _api_topp_edit.text.strip_edges().to_float()
+	cm.save_config()
+	# 同步 LLMClient 通信参数
+	var llm = get_node_or_null("/root/LLMClient")
+	if llm:
+		llm.refresh_config()
+	toast("API 配置已保存")
+	close_overlay("overlay-api")
+
+## 打开 user:// 数据目录（资源管理器）
+func _on_open_user_dir() -> void:
+	OS.shell_open("user://")
 
 # ================= 存档槽位 =================
 func _refresh_save_slots() -> void:

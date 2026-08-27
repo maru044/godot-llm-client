@@ -139,6 +139,7 @@ func create_entry(name: String, depth: int, role: String, content: String) -> St
 	var fw := FileAccess.open(target, FileAccess.WRITE)
 	if fw:
 		fw.store_string(front + content)
+		fw = null  # 释放文件锁，确保写盘落定后再 reload
 		reload()
 		EventBus.prompt_entries_changed.emit()
 		return safe_name + ".md"
@@ -155,6 +156,7 @@ func update_entry(file_name: String, name: String, depth: int, role: String, con
 	var fw := FileAccess.open(path, FileAccess.WRITE)
 	if fw:
 		fw.store_string(front + content)
+		fw = null  # 释放文件锁，确保写盘落定后再 reload
 		reload()
 		EventBus.prompt_entries_changed.emit()
 		return true
