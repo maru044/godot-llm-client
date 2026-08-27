@@ -16,6 +16,7 @@ var _save_mode: String = "load"
 # --- 聊天页运行期引用（供追加消息 / 读取输入） ---
 var _msg_box: VBoxContainer
 var _input_line: LineEdit
+var _send_button: Button             # 发送按钮（用于思考中禁用）
 var _model_reply_count: int = 0    # 当前模型回复槽位，便于追加
 
 # --- 预设面板运行期引用 ---
@@ -280,6 +281,7 @@ func _build_chat_screen() -> void:
 	var b_send := UI.button("发送", true, false, 15, 13, 28)
 	b_send.pressed.connect(_on_send_pressed)
 	irow.add_child(b_send)
+	_send_button = b_send
 
 ## 生成一条示例消息（与 HTML .msg.char / .msg.user 一致）
 ## char：头像在左、白气泡撑满；user：气泡靠右、头像在最右
@@ -326,6 +328,8 @@ func _add_chat_message(box: VBoxContainer, kind: String, text: String, extra: Va
 	rtl.bbcode_enabled = true
 	rtl.fit_content = true
 	rtl.scroll_active = false
+	rtl.selection_enabled = true          # 允许选中复制
+	rtl.context_menu_enabled = true       # 右键复制菜单
 	rtl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rtl.add_theme_font_override("normal_font", UI.font(15, 400))
 	rtl.add_theme_font_size_override("normal_font_size", 15)
@@ -1108,35 +1112,37 @@ func send_message(text: String) -> void:
 	if llm:
 		llm.send_chat(text)
 
-## LLM 开始请求
+## LLM 开始请求：禁用发送按钮，变为"思考中"
 func _on_llm_started() -> void:
-	pass  # 可在此显示"生成中"状态
+	if _send_button:
+		_send_button.disabled = true
+		_send_button.text = "思考中…"
+	if _input_line:
+		_input_line.editable = false
 
-## LLM 回复完成：追加到底部
+## LLM 回复完成：恢复发送按钮 + 追加回复气泡
 func _on_llm_finished(content: String) -> void:
+	if _send_button:
+		_send_button.disabled = false
+		_send_button.text = "发送"
+	if _input_line:
+		_input_line.editable = true
 	if _msg_box:
 		_add_chat_message(_msg_box, "char", content)
 		_scroll_to_bottom()
 
-## 倒回：回退会话历史 + 清除 UI 最后一条消息 + 回填输入框
+## 倒回：回退会话历史 + 用历史重建全部气泡（保证 UI 与历史一致，停在 assistant）
 func _on_rollback() -> void:
 	var llm = get_node_or_null("/root/LLMClient")
 	if llm == null:
 		return
 	var rolled_text = llm.rollback_history()
-	# 清除 UI 消息区最后一条消息
-	_clear_last_message()
 	# 回填输入框（若倒回成功）
 	if rolled_text != "" and _input_line:
 		_input_line.text = rolled_text
 		toast("已倒回上一轮")
-
-## 移除消息区最后一条用户/助手消息
-func _clear_last_message() -> void:
-	if _msg_box == null or _msg_box.get_child_count() == 0:
-		return
-	var last = _msg_box.get_child(_msg_box.get_child_count() - 1)
-	last.queue_free()
+	# 依历史重建气泡，绝不残留多余气泡（关键：回滚后 UI 末尾=历史末尾的 assistant）
+	_rebuild_chat_from_history(llm._chat_history)
 
 ## 系统错误：弹出红色 Toast
 func _on_system_error(msg: String) -> void:
