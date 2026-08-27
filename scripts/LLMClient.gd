@@ -137,14 +137,35 @@ func send_chat(user_text: String) -> void:
 	# 若上一轮中断（历史末尾非 user，如残留 tool/assistant/system），先净化
 	_clean_stale_history_before_send()
 
+	# 连续 user 合并：若历史末尾已是 user（重复输入/重发），合并进上一条，避免 user-user 非法序列
+	if _merge_consecutive_user(user_text):
+		print("[LLMClient] 检测到连续 user 输入，已合并到上一条")
+		_trigger_react_loop(0)
+		return
+
 	# 新的一轮对话，重置骰子缓存
 	if get_node_or_null("/root/PromptSchema"):
 		get_node("/root/PromptSchema").reset_dice()
 
-	var formatted_user_text = "{[Master最新行动/语言：%s]} ｝" % user_text
-	_chat_history.append({"role": "user", "content": formatted_user_text})
+	_chat_history.append({"role": "user", "content": build_user_content(user_text)})
 
 	_trigger_react_loop(0)
+
+
+## 统一构造用户消息的包装格式
+func build_user_content(user_text: String) -> String:
+	return "{[Master最新行动/语言：%s]} ｝" % user_text
+
+
+## 连续 user 合并：若历史末尾已是 user，把新输入并入上一条并返回 true；否则返回 false。
+func _merge_consecutive_user(user_text: String) -> bool:
+	if _chat_history.size() > 0 and _chat_history.back().get("role") == "user":
+		var last_user = _chat_history.back()
+		var merged = String(last_user.get("content", ""))
+		merged += "\n" + build_user_content(user_text)
+		last_user["content"] = merged
+		return true
+	return false
 
 
 func _trigger_react_loop(loop_count: int) -> void:
