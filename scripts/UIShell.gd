@@ -633,7 +633,7 @@ func _build_overlay_char() -> void:
 	b_back.pressed.connect(func(): close_overlay("overlay-char"))
 	topbar.add_child(b_back)
 	topbar.add_child(UI.label("角色卡", 18, Palette.BA_DEEP, 800))
-	var sub := UI.label("  LLM 生成角色 · 占位数据", 12, Palette.BA_TEXT_DIM, 400)
+	var sub := UI.label("  LLM 生成角色（来自 DataManager）", 12, Palette.BA_TEXT_DIM, 400)
 	sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	topbar.add_child(sub)
 
