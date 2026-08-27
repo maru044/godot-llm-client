@@ -175,6 +175,14 @@ func _build_chat_screen() -> void:
 	shell.add_theme_constant_override("separation", 12)
 	root.add_child(shell)
 
+	# 左上角悬浮"回到标题"按钮（避开右上角操作按钮，防误触）
+	var home_btn := UI.button("← 标题", false, true, 13, 8, 16)
+	home_btn.name = "HomeButton"
+	home_btn.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	home_btn.position = Vector2(18, 14)
+	home_btn.pressed.connect(func(): close_overlay("overlay-save"); show_screen("screen-title"))
+	root.add_child(home_btn)
+
 	# ------ 头栏 ------
 	var header := _glass(18, 18)
 	header.name = "Header"
