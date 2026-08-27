@@ -486,11 +486,12 @@ func _field(label_text: String, value: String, min_w: float) -> VBoxContainer:
 	return box
 
 ## 刷新预设列表：从 PromptSchema.list_entries 动态生成（按 depth 排序）
+## 只删"条目按钮"(带 preset_item 标记)，保留"＋ 新建条目"等固定按钮
 func _refresh_preset_list() -> void:
 	if _preset_list_container == null:
 		return
 	for child in _preset_list_container.get_children():
-		if child is Button:
+		if child is Button and child.has_meta("preset_item"):
 			child.queue_free()
 	var ps = get_node_or_null("/root/PromptSchema")
 	if ps == null:
@@ -511,6 +512,7 @@ func _make_preset_list_item(name: String, sub: String, active: bool, file: Strin
 	item.focus_mode = Control.FOCUS_NONE
 	item.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	item.custom_minimum_size = Vector2(0, 44)
+	item.set_meta("preset_item", true)  # 供刷新时识别为"条目按钮"，可被清除
 	item.add_theme_stylebox_override("normal", UI.list_item(active))
 	item.add_theme_stylebox_override("hover", UI.list_item(active, true))
 	item.add_theme_stylebox_override("pressed", UI.list_item(active))
@@ -568,19 +570,50 @@ func _on_preset_save() -> void:
 	if ok:
 		_refresh_preset_list()
 
-## 新建条目：弹窗输入名称+深度
+## 新建条目：弹窗让玩家填写 名称 + 深度，确定后创建
 func _on_preset_new() -> void:
 	var ps = get_node_or_null("/root/PromptSchema")
 	if ps == null:
 		return
-	# 直接进入编辑模式新建：清空编辑器，提示在新条目输入名称/深度
-	_preset_selected_file = ""
-	_preset_title_lbl.text = "（新条目：填写名称与深度后保存）"
-	_preset_name_edit.text = ""
-	_preset_depth_edit.text = "0"
-	_preset_body_edit.text = ""
-	_preset_name_edit.grab_focus()
-	toast("新建：填写名称和深度后点击保存")
+	# 构建一个弹窗对话框（名称 + 深度，自动填充文件头，role 默认 system）
+	var dlg := AcceptDialog.new()
+	dlg.title = "新建预设条目"
+	dlg.ok_button_text = "创建"
+	dlg.cancel_button_text = "取消"
+	dlg.min_size = Vector2(360, 0)
+
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	vb.custom_minimum_size = Vector2(320, 0)
+	dlg.add_child(vb)
+
+	var name_le := LineEdit.new()
+	name_le.placeholder_text = "条目名称（如：新角色设定）"
+	vb.add_child(name_le)
+
+	var depth_le := LineEdit.new()
+	depth_le.placeholder_text = "深度（数字，越大越靠前，如 30）"
+	vb.add_child(depth_le)
+
+	dlg.confirmed.connect(func():
+		var n := name_le.text.strip_edges()
+		if n == "":
+			toast("名称不能为空")
+			return
+		var d := depth_le.text.strip_edges().to_int()
+		var file: String = ps.create_entry(n, d, "system", "")
+		if file != "":
+			_preset_selected_file = file
+			# 把内容载入右侧编辑器，便于继续补正文
+			_on_preset_select(file)
+			_refresh_preset_list()
+			toast("已创建条目: " + n)
+		else:
+			toast("创建失败")
+	)
+
+	add_child(dlg)
+	dlg.popup_centered()
 
 ## 新建实际的保存动作（按名称+深度自动填充文件头，role 默认 system）
 ## 由 _on_preset_save 在无选中文件时触发新建
