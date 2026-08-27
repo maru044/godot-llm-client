@@ -13,6 +13,11 @@ var _overlays: Dictionary = {}      # id -> Control
 var _screen_stack: Array = []
 var _save_mode: String = "load"
 
+# --- 聊天页运行期引用（供追加消息 / 读取输入） ---
+var _msg_box: VBoxContainer
+var _input_line: LineEdit
+var _model_reply_count: int = 0    # 当前模型回复槽位，便于追加
+
 const FAKE_SLOTS: Array = [
 	{"day": 3, "created": "2026-08-25 21:14"},
 	null,
@@ -29,6 +34,11 @@ func _ready() -> void:
 	_build_overlay_char()
 	_build_overlay_save()
 	_build_overlay_api()
+
+	# 接通 LLM 核心信号 → UI
+	EventBus.llm_response_started.connect(_on_llm_started)
+	EventBus.llm_response_finished.connect(_on_llm_finished)
+	EventBus.system_error_occurred.connect(_on_system_error)
 
 # ================= 背景 =================
 func _build_background() -> void:
@@ -215,6 +225,7 @@ func _build_chat_screen() -> void:
 	msg_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	msg_box.add_theme_constant_override("separation", 14)
 	scroll.add_child(msg_box)
+	_msg_box = msg_box
 
 	# 5 条示例对话（与 HTML 一致）
 	_add_chat_message(msg_box, "char", "喵哈哈，Master 终于来了~ 今天想玩点什么？世界观设定我们已经聊了不少哦！")
@@ -238,7 +249,7 @@ func _build_chat_screen() -> void:
 
 	var input := LineEdit.new()
 	input.name = "Input"
-	input.placeholder_text = "输入消息…（占位）"
+	input.placeholder_text = "输入消息…"
 	input.custom_minimum_size = Vector2(0, 46)
 	input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	input.add_theme_font_override("font", UI.font(15, 400))
@@ -249,9 +260,12 @@ func _build_chat_screen() -> void:
 	input.add_theme_stylebox_override("normal", UI.input_box(false, 14, 11, 16))
 	input.add_theme_stylebox_override("focus", UI.input_box(true, 14, 11, 16))
 	irow.add_child(input)
+	_input_line = input
+	# 回车发送
+	input.text_submitted.connect(_on_input_submitted)
 
 	var b_send := UI.button("发送", true, false, 15, 13, 28)
-	b_send.pressed.connect(func(): toast("（占位）发送：" + input.text))
+	b_send.pressed.connect(_on_send_pressed)
 	irow.add_child(b_send)
 
 ## 生成一条示例消息（与 HTML .msg.char / .msg.user 一致）
@@ -802,6 +816,50 @@ func _slot_button(text: String, color: Color, msg: String) -> Button:
 	b.add_theme_color_override("font_hover_color", Color.WHITE)
 	b.pressed.connect(func(): toast(msg))
 	return b
+
+# ================= 对话发送与响应 =================
+
+## 输入框回车提交
+func _on_input_submitted(text: String) -> void:
+	if text.strip_edges() != "":
+		send_message(text)
+
+## 发送按钮点击
+func _on_send_pressed() -> void:
+	var text = _input_line.text if _input_line else ""
+	if text.strip_edges() != "":
+		send_message(text)
+
+## 统一发送入口：把用户消息渲染到 UI 并交给 LLMClient
+func send_message(text: String) -> void:
+	if _input_line:
+		_input_line.text = ""
+	if _msg_box:
+		_add_chat_message(_msg_box, "user", text)
+	var llm = get_node_or_null("/root/LLMClient")
+	if llm:
+		llm.send_chat(text)
+
+## LLM 开始请求
+func _on_llm_started() -> void:
+	pass  # 可在此显示"生成中"状态
+
+## LLM 回复完成：追加到底部
+func _on_llm_finished(content: String) -> void:
+	if _msg_box:
+		_add_chat_message(_msg_box, "char", content)
+		_scroll_to_bottom()
+
+## 系统错误：弹出 Toast
+func _on_system_error(msg: String) -> void:
+	toast(msg)
+
+## 滚动到消息区底部
+func _scroll_to_bottom() -> void:
+	if _msg_box:
+		var sc: ScrollContainer = _msg_box.get_parent() as ScrollContainer
+		if sc:
+			sc.scroll_vertical = int(sc.get_v_scroll_bar().max_value)
 
 # ================= 交互 =================
 func show_screen(id: String) -> void:

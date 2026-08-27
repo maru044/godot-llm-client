@@ -15,6 +15,16 @@ config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 run/main_scene="res://scenes/main.tscn"
 
+[autoload]
+
+ConfigManager="*res://scripts/ConfigManager.gd"
+EventBus="*res://scripts/EventBus.gd"
+SaveManager="*res://scripts/SaveManager.gd"
+DataManager="*res://scripts/DataManager.gd"
+PromptSchema="*res://scripts/PromptSchema.gd"
+LLMToolExecutor="*res://scripts/LLMToolExecutor.gd"
+LLMClient="*res://scripts/LLMClient.gd"
+
 [display]
 
 window/size/viewport_width=1920
