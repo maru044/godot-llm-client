@@ -104,6 +104,22 @@ func create_new_game() -> void:
 	EventBus.active_save_changed.emit("temp_run")
 
 
+## 便捷保存：从 LLMClient 收集历史 + 可选的 game_state，保存到指定槽位
+## 供 UI 存档按钮直接调用
+func save_current_game(slot_index: int, game_state: Dictionary = {}) -> bool:
+	var chat_history: Array = []
+	var llm = get_node_or_null("/root/LLMClient")
+	if llm:
+		chat_history = llm._chat_history
+	# 附带消息统计（供槽位显示）
+	var msg_count := chat_history.size()
+	var now := Time.get_datetime_string_from_system()
+	var ok := save_game_to_slot(slot_index, game_state, chat_history)
+	if ok:
+		print("[SaveManager] 已保存当前游戏(slot %d), 消息数: %d" % [slot_index + 1, msg_count])
+	return ok
+
+
 ## 在指定槽位保存游戏（把 temp_run 复制到 slot_X）
 ## game_state 由游戏提供其自定义 JSON，chat_history 由 Core 提供
 func save_game_to_slot(slot_index: int, game_state: Dictionary = {}, chat_history: Array = []) -> bool:
@@ -114,6 +130,7 @@ func save_game_to_slot(slot_index: int, game_state: Dictionary = {}, chat_histor
 		"created_at": Time.get_datetime_string_from_system(),
 		"game_state": game_state,
 		"chat_history": chat_history,
+		"msg_count": chat_history.size(),
 	}
 
 	var fw = FileAccess.open(TEMP_RUN_DIR + "metadata.json", FileAccess.WRITE)

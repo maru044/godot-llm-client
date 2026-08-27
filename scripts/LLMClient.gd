@@ -72,7 +72,7 @@ func rollback_history() -> String:
 			var prefix_idx = txt.find("：")
 			if prefix_idx != -1:
 				txt = txt.substr(prefix_idx + 1)
-			txt = txt.replace("} ｝", "").strip_edges()
+			txt = txt.replace("]} ｝", "").strip_edges()
 			rolled_user_text = txt
 			_chat_history.pop_back()
 			break

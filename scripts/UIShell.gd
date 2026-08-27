@@ -794,14 +794,14 @@ func _make_save_slot(idx: int, slot) -> Control:
 	h.add_child(actions)
 
 	if slot:
-		actions.add_child(_slot_button("读取", Palette.SLOT_LOAD, "（占位）读取槽位 #%d" % (idx + 1)))
+		actions.add_child(_slot_button("读取", Palette.SLOT_LOAD, "载入槽位 #%d" % (idx + 1), func(): _on_load_slot(idx)))
 	if _save_mode == "save":
-		actions.add_child(_slot_button("保存", Palette.SLOT_SAVE, "（占位）保存到槽位 #%d" % (idx + 1)))
+		actions.add_child(_slot_button("保存", Palette.SLOT_SAVE, "保存到槽位 #%d" % (idx + 1), func(): _on_save_slot(idx)))
 	if slot:
-		actions.add_child(_slot_button("删除", Palette.SLOT_DELETE, "（占位）删除槽位 #%d" % (idx + 1)))
+		actions.add_child(_slot_button("删除", Palette.SLOT_DELETE, "删除槽位 #%d" % (idx + 1), func(): _on_delete_slot(idx)))
 	return row
 
-func _slot_button(text: String, color: Color, msg: String) -> Button:
+func _slot_button(text: String, color: Color, msg: String, handler: Callable = Callable()) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
@@ -814,7 +814,10 @@ func _slot_button(text: String, color: Color, msg: String) -> Button:
 	b.add_theme_font_size_override("font_size", 13)
 	b.add_theme_color_override("font_color", Color.WHITE)
 	b.add_theme_color_override("font_hover_color", Color.WHITE)
-	b.pressed.connect(func(): toast(msg))
+	if handler.is_valid():
+		b.pressed.connect(func(): handler.call())
+	else:
+		b.pressed.connect(func(): toast(msg))
 	return b
 
 # ================= 对话发送与响应 =================
@@ -873,6 +876,76 @@ func _clear_last_message() -> void:
 ## 系统错误：弹出红色 Toast
 func _on_system_error(msg: String) -> void:
 	toast(msg, true)
+
+# ================= 存档操作 =================
+
+## 保存当前游戏到槽位
+func _on_save_slot(idx: int) -> void:
+	var sm = get_node_or_null("/root/SaveManager")
+	if sm == null:
+		return
+	var ok = sm.save_current_game(idx)
+	toast("已存入槽位 #%d" % (idx + 1) if ok else "保存失败")
+	_refresh_save_slots()
+
+## 从槽位读取游戏并还原历史气泡
+func _on_load_slot(idx: int) -> void:
+	var sm = get_node_or_null("/root/SaveManager")
+	if sm == null:
+		return
+	var data = sm.load_game_from_slot(idx)
+	if data.is_empty():
+		toast("槽位 #%d 为空" % (idx + 1))
+		return
+	# 还原历史上下文气泡
+	_rebuild_chat_from_history(data.get("chat_history", []))
+	toast("已载入槽位 #%d" % (idx + 1))
+	_refresh_save_slots()
+
+## 删除指定槽位
+func _on_delete_slot(idx: int) -> void:
+	var sm = get_node_or_null("/root/SaveManager")
+	if sm == null:
+		return
+	sm.delete_slot(idx)
+	toast("已删除槽位 #%d" % (idx + 1))
+	_refresh_save_slots()
+
+## 依据会话历史重建消息气泡（读档/还原用）
+## 只渲染 user / assistant 的纯文本 content，跳过 tool/system/prefill 信息
+func _rebuild_chat_from_history(history: Array) -> void:
+	if _msg_box == null:
+		return
+	# 清空当前消息区
+	for child in _msg_box.get_children():
+		child.queue_free()
+
+	for m in history:
+		var role = (m as Dictionary).get("role", "")
+		if role == "user":
+			var txt = String(m.get("content", ""))
+			var clean = _strip_user_wrap(txt)
+			if clean.strip_edges() != "":
+				_add_chat_message(_msg_box, "user", clean)
+		elif role == "assistant":
+			var txt = String(m.get("content", ""))
+			# 跳过 tool_calls 的 assistant（无正文）与 prefill 残留
+			if txt.strip_edges() != "" and not txt.begins_with("</think>"):
+				var clean = txt.replace("<content>", "").replace("</content>", "").replace("[使用简体中文开始游戏:]", "").strip_edges()
+				if clean.strip_edges() != "":
+					_add_chat_message(_msg_box, "char", clean)
+	_scroll_to_bottom()
+
+## 去除用户消息包装 {[Master最新行动/语言：...]} ｝，还原原始输入
+func _strip_user_wrap(txt: String) -> String:
+	var out = txt
+	# 找到包装前缀 {[Master最新行动/语言：，取其之后内容
+	var idx = out.find("：")
+	if idx != -1:
+		out = out.substr(idx + 1)
+	# 去掉包装后缀 ]} ｝（注意是 ]} ｝ 而非 } ｝）
+	out = out.replace("]} ｝", "").strip_edges()
+	return out
 
 ## 滚动到消息区底部
 func _scroll_to_bottom() -> void:
