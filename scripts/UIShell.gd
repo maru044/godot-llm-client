@@ -1159,7 +1159,7 @@ func _on_save_slot(idx: int) -> void:
 	toast("已存入槽位 #%d" % (idx + 1) if ok else "保存失败")
 	_refresh_save_slots()
 
-## 从槽位读取游戏并还原历史气泡
+## 从槽位读取游戏并还原历史气泡，然后直接进入游戏界面
 func _on_load_slot(idx: int) -> void:
 	var sm = get_node_or_null("/root/SaveManager")
 	if sm == null:
@@ -1168,10 +1168,16 @@ func _on_load_slot(idx: int) -> void:
 	if data.is_empty():
 		toast("槽位 #%d 为空" % (idx + 1))
 		return
+	# 读档后重载角色缓存（槽位已复制到 temp_run，载入该槽位的角色）
+	var dm = get_node_or_null("/root/DataManager")
+	if dm:
+		dm.reload_characters()
 	# 还原历史上下文气泡
 	_rebuild_chat_from_history(data.get("chat_history", []))
+	# 读到存档后直接进入游戏（关存档弹窗 + 切到聊天页）
+	close_overlay("overlay-save")
+	show_screen("screen-chat")
 	toast("已载入槽位 #%d" % (idx + 1))
-	_refresh_save_slots()
 
 ## 删除指定槽位
 func _on_delete_slot(idx: int) -> void:
