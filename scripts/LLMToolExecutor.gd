@@ -121,8 +121,8 @@ func _handler_write_character(args: Dictionary) -> String:
 		"name": name,
 		"status": "Idle",
 	}
-	dm.create_new_character(header)
-	dm.llm_append_body(char_id, content)
+	# 一次性写入骨架 + 正文，避免 create_new_character + llm_append_body 分两次落盘
+	dm.create_character_with_body(header, content)
 
 	return JSON.stringify({"status": "success", "char_id": char_id})
 

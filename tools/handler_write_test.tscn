@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tools/handler_write_test.gd" id="1_hwt"]
+
+[node name="HandlerWriteTest" type="Node"]
+script = ExtResource("1_hwt")

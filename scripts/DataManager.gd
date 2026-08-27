@@ -117,6 +117,29 @@ func create_new_character(header: Dictionary) -> void:
 	EventBus.roster_updated.emit()
 
 
+## 一次性写入新角色（骨架 + 正文一次落盘，避免分两次 _flush_to_disk）
+## 供 write_character_file 等工具使用；同时写内存缓存，避免重复落盘
+func create_character_with_body(header: Dictionary, body: String) -> void:
+	var char_id = header.get("id", "")
+	if char_id == "":
+		return
+
+	var path = _get_current_save_path()
+	if not DirAccess.dir_exists_absolute(path + "characters/"):
+		DirAccess.make_dir_recursive_absolute(path + "characters/")
+	var full_path = path + "characters/" + char_id + ".md"
+
+	_characters_cache[char_id] = {
+		"header": header,
+		"body": body,
+		"file_path": full_path,
+	}
+
+	_flush_to_disk(char_id)
+	EventBus.character_updated.emit(char_id)
+	EventBus.roster_updated.emit()
+
+
 func is_favorited(char_id: String) -> bool:
 	if not _characters_cache.has(char_id):
 		return false
