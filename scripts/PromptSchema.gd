@@ -208,6 +208,11 @@ func build_system_context(dynamic_data: Dictionary = {}) -> String:
 		if p["enabled"] and p["role"] == "system":
 			system_entries.append(p)
 
+	# 角色详细档案合成一条高权重条目（depth≈950，位于角色信息/核心设定之后、其余之前）
+	var roster_block := _build_roster_block()
+	if roster_block != "":
+		system_entries.append({"depth": 950, "content": roster_block})
+
 	system_entries.sort_custom(func(a, b): return a["depth"] > b["depth"])
 
 	var final_str := ""
@@ -218,6 +223,32 @@ func build_system_context(dynamic_data: Dictionary = {}) -> String:
 			final_str += parsed + "\n\n"
 
 	return final_str.strip_edges()
+
+
+## 从 DataManager 读取所有角色，生成完整档案块（含 ### 详细正文）
+## 放在上下文前部（高权重），让 LLM 能看到每个角色的完整设定
+func _build_roster_block() -> String:
+	var dm = get_node_or_null("/root/DataManager")
+	if dm == null:
+		return ""
+	var chars = dm.get_all_characters()
+	if chars.is_empty():
+		return ""
+	var out := "[已建档角色档案]\n"
+	for c in chars:
+		var cid = c.get("id", "Unknown")
+		var n = c.get("name", "Unknown")
+		var r = c.get("race", "")
+		var cls = c.get("class", "")
+		var full = dm.get_character(cid)
+		var body: String = full.get("body", "")
+		out += "### 角色: %s (id=%s)\n" % [n, cid]
+		if r != "" or cls != "":
+			out += "属性: %s %s\n" % [r, cls]
+		if body.strip_edges() != "":
+			out += body + "\n"
+		out += "\n"
+	return out.strip_edges()
 
 
 ## 容错 format：Godot 的 String.format 对缺失的占位符会原样保留、不崩溃，
