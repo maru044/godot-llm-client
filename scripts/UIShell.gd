@@ -1200,7 +1200,10 @@ func _rebuild_chat_from_history(history: Array) -> void:
 				_add_chat_message(_msg_box, "user", clean)
 		elif role == "assistant":
 			var txt = String(m.get("content", ""))
-			# 跳过 tool_calls 的 assistant（无正文）与 prefill 残留
+			# 跳过带 tool_calls 的 assistant（那是工具调用过程，非终稿正文）
+			# 以及 prefill 残留/空正文，避免 UI 多出中间气泡
+			if m.has("tool_calls") and m.get("tool_calls") != null:
+				continue
 			if txt.strip_edges() != "" and not txt.begins_with("</think>"):
 				var clean = txt.replace("<content>", "").replace("</content>", "").replace("[使用简体中文开始游戏:]", "").strip_edges()
 				if clean.strip_edges() != "":
