@@ -15,8 +15,8 @@ func _ready() -> void:
 	EventBus.system_error_occurred.connect(func(m): print("[TOOLTEST] ❌ 错误: ", m))
 	EventBus.character_updated.connect(func(cid): print("[TOOLTEST] 角色更新: ", cid))
 
-	print("[TOOLTEST] 引导模型创建角色...")
-	LLMClient.send_chat("请新建一个角色：名字叫【沙耶】，身份是修女。请用 write_character_file 工具创建她，正文分栏写外观与着装、性格与深层性癖、背景与战斗特质。创建好后告诉我她的 id。")
+	print("[TOOLTEST] 自然场景：用户提到新角色，不强制工具名...")
+	LLMClient.send_chat("我去海边散步时遇到了一个修女，她叫【沙耶】，银白短发琥珀色眼睛，人挺温柔的。我想把她也留在这个岛上，你帮我安排一下吧。")
 
 func _process(dt: float) -> void:
 	if _done:
