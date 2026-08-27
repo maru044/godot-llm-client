@@ -37,6 +37,7 @@ var _api_key_edit: LineEdit
 var _api_model_edit: LineEdit
 var _api_temp_edit: LineEdit
 var _api_topp_edit: LineEdit
+var _api_selected_key: String = ""   # 当前选中的预设 key（gemini/deepseek/custom）
 
 const FAKE_SLOTS: Array = [
 	{"day": 3, "created": "2026-08-25 21:14"},
@@ -914,6 +915,41 @@ func _switch_api_tab(tabs: HBoxContainer, clicked: Button) -> void:
 			var active := child == clicked
 			child.add_theme_stylebox_override("normal", UI.api_tab(active))
 			child.add_theme_stylebox_override("pressed", UI.api_tab(active))
+	# 点击 Tab 时，把对应预设的 URL/模型/温度/topP 填充到输入框（不覆盖用户 key）
+	var tab_key := _tab_text_to_key(clicked.text)
+	if tab_key != "":
+		_api_selected_key = tab_key
+		_apply_preset_to_fields(tab_key)
+
+
+## Tab 文字 → ConfigManager.presets key 映射
+func _tab_text_to_key(text: String) -> String:
+	match text:
+		"Gemini":
+			return "gemini"
+		"DeepSeek":
+			return "deepseek"
+		"自定义":
+			return "custom"
+	return ""
+
+
+## 把指定预设的 url/model/temp/top_p 填入输入框（保留当前 api_key）
+func _apply_preset_to_fields(key: String) -> void:
+	var cm = get_node_or_null("/root/ConfigManager")
+	if cm == null:
+		return
+	var p: Dictionary = cm.presets.get(key, {})
+	if p.is_empty():
+		return
+	if _api_url_edit:
+		_api_url_edit.text = String(p.get("url", ""))
+	if _api_model_edit:
+		_api_model_edit.text = String(p.get("model", ""))
+	if _api_temp_edit:
+		_api_temp_edit.text = str(p.get("temp", 1.0))
+	if _api_topp_edit:
+		_api_topp_edit.text = str(p.get("top_p", 0.88))
 
 ## 打开弹窗时从 ConfigManager 预填字段
 func _prefill_api_fields() -> void:
@@ -936,6 +972,9 @@ func _on_api_save() -> void:
 	var cm = get_node_or_null("/root/ConfigManager")
 	if cm == null:
 		return
+	# 若用户切换了预设 Tab，保存时同步 active_api
+	if _api_selected_key != "":
+		cm.active_api = _api_selected_key
 	if _api_url_edit:
 		cm.api_url = _api_url_edit.text.strip_edges()
 	if _api_key_edit:
