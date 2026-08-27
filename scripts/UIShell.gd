@@ -192,7 +192,7 @@ func _build_chat_screen() -> void:
 	right.add_child(tag)
 
 	var b_rollback := UI.button("↩ 倒回", false, false, 13, 8, 16)
-	b_rollback.pressed.connect(func(): toast("（占位）倒回：回到最近一次 model 回复"))
+	b_rollback.pressed.connect(_on_rollback)
 	right.add_child(b_rollback)
 
 	var b_save := UI.button("💾 存档", false, false, 13, 8, 16)
@@ -849,6 +849,26 @@ func _on_llm_finished(content: String) -> void:
 	if _msg_box:
 		_add_chat_message(_msg_box, "char", content)
 		_scroll_to_bottom()
+
+## 倒回：回退会话历史 + 清除 UI 最后一条消息 + 回填输入框
+func _on_rollback() -> void:
+	var llm = get_node_or_null("/root/LLMClient")
+	if llm == null:
+		return
+	var rolled_text = llm.rollback_history()
+	# 清除 UI 消息区最后一条消息
+	_clear_last_message()
+	# 回填输入框（若倒回成功）
+	if rolled_text != "" and _input_line:
+		_input_line.text = rolled_text
+		toast("已倒回上一轮")
+
+## 移除消息区最后一条用户/助手消息
+func _clear_last_message() -> void:
+	if _msg_box == null or _msg_box.get_child_count() == 0:
+		return
+	var last = _msg_box.get_child(_msg_box.get_child_count() - 1)
+	last.queue_free()
 
 ## 系统错误：弹出红色 Toast
 func _on_system_error(msg: String) -> void:

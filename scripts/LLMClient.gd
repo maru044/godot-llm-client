@@ -56,19 +56,34 @@ func reset_history() -> void:
 	_chat_history.clear()
 
 
+## 倒回：移除最后一个用户轮次，包括其 assistant 回复及可能附带的 tool 消息。
+## 返回被倒回的那条用户原始文本（供 UI 回填输入框）。返回空串表示无可回退。
 func rollback_history() -> String:
-	if _chat_history.size() > 0 and _chat_history.back().get("role") == "assistant":
-		_chat_history.pop_back()
+	var rolled_user_text := ""
 
-	if _chat_history.size() > 0 and _chat_history.back().get("role") == "user":
-		var user_msg = _chat_history.pop_back()
-		var txt = user_msg.get("content", "")
-		var prefix_idx = txt.find("：")
-		if prefix_idx != -1:
-			txt = txt.substr(prefix_idx + 1)
-		txt = txt.replace("} ｝", "").strip_edges()
-		return txt
-	return ""
+	# 从末尾往回走，直到遇到并移除一条 user 消息
+	while _chat_history.size() > 0:
+		var last = _chat_history.back()
+		var role = last.get("role", "")
+
+		if role == "user":
+			# 找到用户轮次，取出其原始文本后移除
+			var txt = last.get("content", "")
+			var prefix_idx = txt.find("：")
+			if prefix_idx != -1:
+				txt = txt.substr(prefix_idx + 1)
+			txt = txt.replace("} ｝", "").strip_edges()
+			rolled_user_text = txt
+			_chat_history.pop_back()
+			break
+		elif role in ["assistant", "tool"]:
+			# assistant 及其伴随的 tool 消息一并移除
+			_chat_history.pop_back()
+		else:
+			# system 等其他消息遇到则停止（避免误删设定）
+			break
+
+	return rolled_user_text
 
 
 func inject_system_message(content: String) -> void:
@@ -88,10 +103,39 @@ func _cleanup_failed_round() -> void:
 		print("[LLMClient] 已清理故障轮次数据，回到上一条用户消息")
 
 
+## F2 干净发送：发送前扫描历史是否有"上一轮异常中断"的脏数据，只清孤立残留。
+## 正常状态：末尾是 user（完成轮次）或纯文本 assistant（倒回后可重输），均不动。
+## 需清理：末尾是孤立 tool 消息 / 带 tool_calls 但未配对的 assistant / system 残留。
+func _clean_stale_history_before_send() -> void:
+	if _chat_history.size() == 0:
+		return
+	var role = _chat_history.back().get("role", "")
+
+	# 判断是否中断残留：ends_with_tool_calls 表示 assistant 声明了工具但缺配对 tool 结果
+	var is_stale := false
+	if role == "tool":
+		is_stale = true
+	elif role == "system":
+		is_stale = true
+	elif role == "assistant":
+		var last = _chat_history.back()
+		# 若末尾 assistant 带 tool_calls（等待工具结果但没下文）→ 中断残留
+		if last.has("tool_calls") and last.get("tool_calls") != null:
+			is_stale = true
+
+	if is_stale:
+		print("[LLMClient] 发送前检测到历史末尾为 [", role, "] 存在中断残留，先净化")
+		_cleanup_failed_round()
+
+
 func send_chat(user_text: String) -> void:
 	if _is_requesting:
 		print("[LLMClient] 当前请求未完成，拒绝新请求")
 		return
+
+	# F2 干净发送：发送前主动清理历史中的孤立脏数据
+	# 若上一轮中断（历史末尾非 user，如残留 tool/assistant/system），先净化
+	_clean_stale_history_before_send()
 
 	# 新的一轮对话，重置骰子缓存
 	if get_node_or_null("/root/PromptSchema"):
