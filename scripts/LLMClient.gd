@@ -112,10 +112,9 @@ func _clean_stale_history_before_send() -> void:
 	var role = _chat_history.back().get("role", "")
 
 	# 判断是否中断残留：ends_with_tool_calls 表示 assistant 声明了工具但缺配对 tool 结果
+	# 注意：system 消息（如格式提醒）是有效信息，不算脏数据，不在此清理
 	var is_stale := false
 	if role == "tool":
-		is_stale = true
-	elif role == "system":
 		is_stale = true
 	elif role == "assistant":
 		var last = _chat_history.back()
@@ -337,8 +336,14 @@ func _trigger_react_loop(loop_count: int) -> void:
 			parser.content_extracted.connect(func(c): EventBus.llm_response_finished.emit(c))
 			parser.format_error.connect(func():
 				var reminder = "[System: Format Correction] 刚刚的回复缺少 <content> 标签，导致解析器无法正常提取正文。请在下次输出时严格遵守格式规范：使用 <thinking>...</thinking> 包裹思考过程，使用 [使用简体中文开始游戏:] 作为分隔，使用 <content>...</content> 包裹正文。"
-				_chat_history.append({"role": "system", "content": reminder})
-				print("[LLMClient] ⚠️ 模型回复缺少 <content> 标签，已注入格式提醒")
+				# 不把格式提醒追加为独立 system 历史（会污染历史结构、被误清理），
+				# 只并入当前 assistant 消息尾部，让模型下次参考即可
+				var last = _chat_history.back()
+				if last != null and last.get("role") == "assistant":
+					var base: String = String(last.get("content", ""))
+					base += "\n\n" + reminder
+					last["content"] = base
+				print("[LLMClient] ⚠️ 模型回复缺少 <content> 标签，已在回复内附格式提醒")
 			)
 			parser.parse_full_response(full_text_for_parse)
 			parser.free()
