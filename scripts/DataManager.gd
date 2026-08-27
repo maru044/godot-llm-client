@@ -124,10 +124,15 @@ func create_character_with_body(header: Dictionary, body: String) -> void:
 	if char_id == "":
 		return
 
+	# 文件名用角色名（更直观，便于按名 read）；净化非法字符，重名加唯一后缀兜底
+	var safe_name := _safe_filename(header.get("name", char_id))
 	var path = _get_current_save_path()
 	if not DirAccess.dir_exists_absolute(path + "characters/"):
 		DirAccess.make_dir_recursive_absolute(path + "characters/")
-	var full_path = path + "characters/" + char_id + ".md"
+	var full_path = path + "characters/" + safe_name + ".md"
+	# 若目标文件存在（罕见重名），追加 char_id 后缀避免覆盖
+	if FileAccess.file_exists(full_path):
+		full_path = path + "characters/" + safe_name + "_" + char_id + ".md"
 
 	_characters_cache[char_id] = {
 		"header": header,
@@ -138,6 +143,17 @@ func create_character_with_body(header: Dictionary, body: String) -> void:
 	_flush_to_disk(char_id)
 	EventBus.character_updated.emit(char_id)
 	EventBus.roster_updated.emit()
+
+
+## 文件名净化：替换 Windows 非法字符，避免角色名导致路径错误
+func _safe_filename(name: String) -> String:
+	var bad := ["\\", "/", ":", "*", "?", "\"", "<", ">", "|"]
+	var out := name.strip_edges()
+	for b in bad:
+		out = out.replace(b, "_")
+	if out.strip_edges() == "":
+		out = "character"
+	return out
 
 
 func is_favorited(char_id: String) -> bool:
