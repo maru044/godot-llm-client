@@ -1235,6 +1235,12 @@ func show_screen(id: String) -> void:
 func open_overlay(id: String) -> void:
 	if _overlays.has(id):
 		_overlays[id].visible = true
+	# 每次打开面板都重新读取对应名单，保证 LLM 新建的角色/条目热加载
+	match id:
+		"overlay-char":
+			_refresh_char_list()
+		"overlay-preset":
+			_refresh_preset_list()
 
 func close_overlay(id: String) -> void:
 	if _overlays.has(id):
