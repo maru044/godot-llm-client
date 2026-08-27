@@ -15,7 +15,7 @@ var _save_mode: String = "load"
 
 # --- 聊天页运行期引用（供追加消息 / 读取输入） ---
 var _msg_box: VBoxContainer
-var _input_line: LineEdit
+var _input_line: TextEdit             # 多行输入框
 var _send_button: Button             # 发送按钮（用于思考中禁用）
 var _model_reply_count: int = 0    # 当前模型回复槽位，便于追加
 
@@ -269,11 +269,12 @@ func _build_chat_screen() -> void:
 	irow.add_theme_constant_override("separation", 10)
 	input_bar.add_child(irow)
 
-	var input := LineEdit.new()
+	var input := TextEdit.new()
 	input.name = "Input"
-	input.placeholder_text = "输入消息…"
-	input.custom_minimum_size = Vector2(0, 46)
+	input.placeholder_text = "输入消息…（Enter 发送 / Shift+Enter 换行）"
+	input.custom_minimum_size = Vector2(0, 70)
 	input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	input.wrap_mode = 1  # TextEdit.LineWrappingMode.WRAP_WORD
 	input.add_theme_font_override("font", UI.font(15, 400))
 	input.add_theme_font_size_override("font_size", 15)
 	input.add_theme_color_override("font_color", Palette.BA_TEXT)
@@ -283,8 +284,8 @@ func _build_chat_screen() -> void:
 	input.add_theme_stylebox_override("focus", UI.input_box(true, 14, 11, 16))
 	irow.add_child(input)
 	_input_line = input
-	# 回车发送
-	input.text_submitted.connect(_on_input_submitted)
+	# enter 发送 / shift+enter 换行
+	input.gui_input.connect(_on_input_key)
 
 	var b_send := UI.button("发送", true, false, 15, 13, 28)
 	b_send.pressed.connect(_on_send_pressed)
@@ -1132,10 +1133,20 @@ func _slot_button(text: String, color: Color, msg: String, handler: Callable = C
 
 # ================= 对话发送与响应 =================
 
-## 输入框回车提交
-func _on_input_submitted(text: String) -> void:
-	if text.strip_edges() != "":
-		send_message(text)
+## 多行输入框按键处理：Enter 发送（无 Shift）；Shift+Enter 放行（TextEdit 默认换行）
+func _on_input_key(event: InputEvent) -> void:
+	if _input_line == null:
+		return
+	if event is InputEventKey and event.pressed:
+		var key: int = event.keycode
+		if key == KEY_ENTER or key == KEY_KP_ENTER:
+			if event.shift_pressed:
+				return  # shift+enter：让 TextEdit 插入换行，不拦截
+			# 无 shift 的 Enter：拦截并发送
+			_input_line.accept_event()
+			var text := _input_line.text
+			if text.strip_edges() != "":
+				send_message(text)
 
 ## 发送按钮点击
 func _on_send_pressed() -> void:
