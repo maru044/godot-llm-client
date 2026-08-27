@@ -138,7 +138,7 @@ func _build_title_screen() -> void:
 	wrap.add_child(menu)
 
 	var b_start := UI.button("开始游戏", true, false, 17, 15, 34, 170)
-	b_start.pressed.connect(func(): show_screen("screen-chat"))
+	b_start.pressed.connect(_on_start_game)
 	menu.add_child(b_start)
 
 	var b_load := UI.button("读取游戏", false, false, 17, 15, 34, 170)
@@ -1226,6 +1226,22 @@ func _scroll_to_bottom() -> void:
 			sc.scroll_vertical = int(sc.get_v_scroll_bar().max_value)
 
 # ================= 交互 =================
+
+## 开始游戏：初始化新的临时存档（清空旧 temp_run/历史），再进入聊天页
+func _on_start_game() -> void:
+	var sm = get_node_or_null("/root/SaveManager")
+	if sm:
+		sm.create_new_game()
+	# 清空内存中的会话历史，避免旧记忆影响新游戏
+	var llm = get_node_or_null("/root/LLMClient")
+	if llm:
+		llm.reset_history()
+	# 清空聊天气泡
+	if _msg_box:
+		for child in _msg_box.get_children():
+			child.queue_free()
+	show_screen("screen-chat")
+
 func show_screen(id: String) -> void:
 	for key in _screens:
 		_screens[key].visible = (key == id)
