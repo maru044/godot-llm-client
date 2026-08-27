@@ -15,6 +15,8 @@ var viewing_char_id: String = ""
 
 func _ready() -> void:
 	EventBus.active_save_changed.connect(_on_save_changed)
+	# 启动时主动加载当前保存路径下的角色文件（否则缓存为空，工具调用读不到）
+	_load_all_characters()
 
 
 func _on_save_changed(save_id: String) -> void:

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tools/tool_update_test.gd" id="1_upd"]
+
+[node name="ToolUpdateTest" type="Node"]
+script = ExtResource("1_upd")
