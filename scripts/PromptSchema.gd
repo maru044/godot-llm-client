@@ -186,9 +186,10 @@ func get_entry_body(file_name: String) -> Dictionary:
 ## ---------- 上下文组装 ----------
 
 ## 每轮对话生成一次骰子缓存（5 个 1~100 的随机数，供格式模板注入）
+## 采用 randi_range(1,100)，严格对应 "5d100"，含 1 和 100（酒馆惯例）
 func _ensure_dice() -> void:
 	if _dice_cache == "":
-		_dice_cache = "(%d, %d, %d, %d, %d)" % [randi() % 100, randi() % 100, randi() % 100, randi() % 100, randi() % 100]
+		_dice_cache = "(%d, %d, %d, %d, %d)" % [randi_range(1, 100), randi_range(1, 100), randi_range(1, 100), randi_range(1, 100), randi_range(1, 100)]
 
 ## 新的一轮对话开始时调用，重置骰子缓存
 func reset_dice() -> void:
