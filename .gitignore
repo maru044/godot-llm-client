@@ -1,3 +1,10 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# 私密信息：API key 参考文件（绝不可提交）
+*密钥*
+*API key*
+重要私密信息*
+config.cfg
+agent_memory.md
