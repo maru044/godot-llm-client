@@ -205,8 +205,10 @@ func _trigger_react_loop(loop_count: int) -> void:
 		payload["thinking"] = {"type": "disabled"}
 
 	if loop_count < MAX_TOOL_LOOPS:
-		payload["tools"] = _tool_executor.get_tools_schema()
-		payload["tool_choice"] = "auto"
+		# 工具执行器不存在时省略 tools，模型仍可纯文本对话（不崩溃）
+		if _tool_executor != null:
+			payload["tools"] = _tool_executor.get_tools_schema()
+			payload["tool_choice"] = "auto"
 
 	var json_str = JSON.stringify(payload)
 	var headers = [
@@ -368,6 +370,12 @@ func _trigger_react_loop(loop_count: int) -> void:
 		return
 
 	if has_tools:
+		# 工具执行器不可用但模型要调工具：明确失败结束，不挂起（对齐 PR#3 健壮性）
+		if _tool_executor == null:
+			print("[LLMClient] ❌ 模型返回工具调用，但工具执行器不存在")
+			EventBus.system_error_occurred.emit("工具执行器不可用，已终止")
+			_is_requesting = false
+			return
 		for tc in message["tool_calls"]:
 			var func_name = tc["function"]["name"]
 			var args_str = tc["function"]["arguments"]
