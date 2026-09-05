@@ -12,7 +12,7 @@ A general-purpose, reusable **LLM chat client base** built with **Godot 4.6**, d
 - **Character cards** — Markdown (`###` sections) storage, **role-name file naming**, injected into system context at high weight (`depth≈950`) so the LLM always sees characters.
 - **Generic save/load** — 6 slots + `temp_run`, game-owned `game_state`, chat-history restore, instant enter-game after load.
 - **Modern, resizable UI** — frost-glass style, gradient avatars (generated textures), multi-line input (`Enter` send / `Shift+Enter` newline), copyable bubbles.
-- **Robust error handling** — retryable / non-retryable error codes, clean rollback (tool-safe), stale-history cleanup, UI error toast, DeepSeek thinking-mode compatibility.
+- **Robust error handling** — retryable / non-retryable error codes, **timeout vs. network loss distinguished**, clean rollback (tool-safe), stale-history cleanup, UI error toast, DeepSeek thinking-mode compatibility.
 
 ---
 
@@ -62,6 +62,21 @@ Register your own tools with `LLMToolExecutor.register_tool({...})`.
 
 ---
 
+## 🪟 UI overlays
+
+Beyond the main chat screen, the shell ships several overlay panels (all built dynamically from `UIShell.gd`):
+
+| Overlay | Capabilities |
+|---------|--------------|
+| **Presets** | List / create / update / delete prompt entries (JSON front-matter `name` / `depth` / `role`), edit via inline editor |
+| **Characters** | List characters, inspect header (stats, race, etc.) + full `###` body, toggle favorite |
+| **Save / Load** | 6 slots + `temp_run`, save-to-slot / load-from-slot / delete-slot, instant enter-game after load |
+| **API config** | Gemini / DeepSeek / Custom preset tabs, live-fills URL / model / temp / top_p, keeps key, persists to `user://config.cfg`, "open data dir" helper |
+
+The overlays are wired to `EventBus` signals so the chat, save, and roster views stay in sync.
+
+---
+
 ## 📁 Key files / folders
 
 | Path | Purpose |
@@ -93,8 +108,36 @@ Higher `depth` → earlier in the system context. The built-in `末尾格式要�
 ## ⚙️ Notes / compatibility
 
 - **DeepSeek V4 (thinking model)**: the client injects `"thinking":{"type":"disabled"}` when `ConfigManager.thinking_disabled` is true (preset for DeepSeek). This keeps Prefill + tools compatible.
+- **Timeout vs. network loss are distinguished**: when `HTTPRequest` reports `RESULT_TIMEOUT`, the UI shows "请求超时（N 秒）" (N = configured `HTTPRequest.timeout`, default 180) instead of the generic "网络断开". Genuine connection failures still show "网络断开". Errors are additionally classified into retryable (network loss / 429 / 5xx) and non-retryable (400 / 401 / 404).
 - **`config.cfg`** contains your private API key and is `gitignore`d — never commit it.
-- **Tests**: see `tools/` for headless scenarios (rollback, save/load, roster injection, tool wiring, etc.).
+
+---
+
+## 🧪 Tests
+
+Runs headless via Godot's console/headless binary — no GPU window needed:
+
+```bash
+# Windows (adjust path to your Godot 4.6+ binary)
+"<path-to-godot>/Godot_v4.6.2-stable_win64_console.exe" --headless ^
+  --path "llm-client" --scene res://tools/<name>_test.tscn
+```
+
+Scenarios in `tools/` (each `<name>_test.gd` + `<name>_test.tscn`):
+
+| Test | Covers |
+|------|--------|
+| `timeout_test` | HTTP timeout (`RESULT_TIMEOUT`) reported separately from network loss — 8 assertions |
+| `error_test` | Bad API key → 401 non-retryable, failed-round cleanup |
+| `connectivity_test` | Request-timeout fallback in the test harness |
+| `rollback_test` / `rollback_tool_test` / `rollback_ui_test` / `rollback_ui_tool_test` | Clean rollback, tool-safe, UI rebuild after rollback |
+| `history_clean_test` / `user_dedup_test` | Stale-history cleanup, consecutive-user merge |
+| `save_load_test` / `load_game_flow_test` / `start_game_test` / `new_game_clean_test` | Slot save/load, `temp_run` lifecycle, enter-game flow |
+| `roster_inject_test` / `char_hotload_test` / `handler_write_test` / `tool_test` / `tool_update_test` | Character roster injection, tools wiring, write/update handlers |
+| `parse_diag_test` / `thinking_check_test` | `<thinking>`/`<content>` parser, format-error reminder |
+| `preset_add_test` / `depth_check_test` | Prompt preset create, depth ordering |
+| `api_tab_test` / `home_button_test` / `multiline_input_test` / `bubble_restore_test` / `ui_fix_test` / `ui_integration_test` | UI overlays, navigation, input, bubble restore |
+| `edge_test` | Edge cases (see file) |
 
 ---
 
