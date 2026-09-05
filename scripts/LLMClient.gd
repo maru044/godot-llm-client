@@ -234,14 +234,7 @@ func _trigger_react_loop(loop_count: int) -> void:
 	var body = response[3] as PackedByteArray
 
 	if response_code != 200:
-		var hint = "未知错误"
-		match response_code:
-			0: hint = "网络断开"
-			400: hint = "请求格式错误"
-			401: hint = "API Key 无效"
-			404: hint = "API 地址不存在"
-			429: hint = "并发或余额受限"
-			500, 502, 503: hint = "服务器故障"
+		var hint = _describe_http_error(result, response_code, _http_request.timeout)
 		print("[LLMClient] ❌ HTTP ", response_code, " ", hint)
 		# 调试：打印响应体，便于定位 400 等拒绝原因
 		if body != null and body.size() > 0:
@@ -391,3 +384,22 @@ func _trigger_react_loop(loop_count: int) -> void:
 	else:
 		print("[LLMClient] ✅ 最终回复已发送到 UI")
 		_is_requesting = false
+
+
+# -----------------------------------------------------------------------------
+## 统一描述 HTTP 错误（纯函数，便于单测）：
+## 优先按 result 区分超时——RESULT_TIMEOUT 时拿不到 HTTP 响应，response_code 恒为 0，
+## 若不单独识别会与「网络断开」混淆。
+static func _describe_http_error(result: int, response_code: int, timeout_sec: float) -> String:
+	var hint = "未知错误"
+	if result == HTTPRequest.RESULT_TIMEOUT:
+		hint = "请求超时（%d 秒）" % int(timeout_sec)
+	else:
+		match response_code:
+			0: hint = "网络断开"
+			400: hint = "请求格式错误"
+			401: hint = "API Key 无效"
+			404: hint = "API 地址不存在"
+			429: hint = "并发或余额受限"
+			500, 502, 503: hint = "服务器故障"
+	return hint
