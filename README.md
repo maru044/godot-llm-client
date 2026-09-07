@@ -1,6 +1,6 @@
 # LLM Client (Godot)
 
-A general-purpose, reusable **LLM chat client base** built with **Godot 4.6**, designed to be dropped into any game / role-play project. It provides a full chat pipeline (non-streaming HTTP + ReAct tool loop), a modern glass-morphism UI, prompt management with `user://` priority, character-card persistence, generic save/load, and robust error handling — while keeping the **core layer free of game-specific knowledge**.
+A general-purpose, reusable **LLM chat client base** built with **Godot 4.6**, primarily maintained for an internal community while remaining freely available for other developers to use and adapt in their own game / role-play projects. It provides a full chat pipeline (non-streaming HTTP + ReAct tool loop), a modern glass-morphism UI, prompt management with `user://` priority, character-card persistence, generic save/load, and robust error handling — while keeping the **core layer free of game-specific knowledge**.
 
 ---
 
