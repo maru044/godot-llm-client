@@ -11,6 +11,7 @@ var api_url: String = "http://127.0.0.1:11434/v1/chat/completions" # LM Studio �
 var api_key: String = "lm-studio"
 var model_name: String = "local-model"
 var api_temp: float = 1.0
+var api_top_p: float = 0.88
 
 const MAX_TOOL_LOOPS = 5
 
@@ -40,6 +41,7 @@ func _ready() -> void:
 		api_key = cm.api_key
 		model_name = cm.model
 		api_temp = cm.api_temp
+		api_top_p = cm.api_top_p
 
 
 ## 用 ConfigManager 刷新通信参数（保存配置后调用）
@@ -50,6 +52,7 @@ func refresh_config() -> void:
 		api_key = cm.api_key
 		model_name = cm.model
 		api_temp = cm.api_temp
+		api_top_p = cm.api_top_p
 
 
 func reset_history() -> void:
@@ -196,6 +199,7 @@ func _trigger_react_loop(loop_count: int) -> void:
 		"model": model_name,
 		"messages": messages,
 		"temperature": api_temp,
+		"top_p": api_top_p,
 		"max_tokens": 65536
 	}
 

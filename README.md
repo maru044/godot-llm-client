@@ -95,7 +95,7 @@ The overlays are wired to `EventBus` signals so the chat, save, and roster views
 
 ## 🗂 Prompt presets
 
-Prompts live under `res://data/prompts/<version>/`. On first run they are copied to `user://Data/Prompts/<version>/`; after that **`user://` wins** (editable). Each `.md` has a JSON front-matter:
+Prompts live under `res://data/prompts/<version>/`. On first run they are copied to `user://data/prompts/<version>/`; after that **`user://` wins** (editable). Each `.md` has a JSON front-matter:
 
 ```jsonc
 { "depth": 500, "name": "My Prompt", "role": "system", "enabled": true }

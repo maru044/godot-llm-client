@@ -7,8 +7,8 @@ extends Node
 ## 支持预设面板的 list / create / update / delete / reload。
 
 const CURRENT_PROMPT_VERSION := "v1.0"
-const RES_PROMPT_DIR := "res://Data/Prompts/"      # res 只做初始化兜底
-const USER_PROMPT_BASE := "user://Data/Prompts/"   # user 是读写主目录
+const RES_PROMPT_DIR := "res://data/prompts/"      # res 只做初始化兜底
+const USER_PROMPT_BASE := "user://data/prompts/"   # user 是读写主目录
 
 # 缓存：{ filename: { depth:int, role:String, content:String, enabled:bool, name:String } }
 var _entries_cache: Dictionary = {}
@@ -36,7 +36,7 @@ func _init_directories() -> void:
 func _copy_res_to_user(from_dir: String, to_dir: String) -> void:
 	var dir := DirAccess.open(from_dir)
 	if not dir:
-		push_warning("[PromptSchema] 无法打开内部资源目录: " + from_dir)
+		push_error("[PromptSchema] 无法打开内部资源目录: " + from_dir)
 		return
 
 	dir.list_dir_begin()
@@ -67,6 +67,8 @@ func reload() -> void:
 	dir.list_dir_end()
 
 	print("[PromptSchema] 已加载提示词条目: ", _entries_cache.size())
+	if _entries_cache.is_empty():
+		push_error("[PromptSchema] 未加载到任何提示词条目，系统上下文将为空，请检查目录: " + _active_version_dir)
 
 
 ## 解析单个 .md 文件（支持 JSON Frontmatter / --- Frontmatter）
