@@ -61,6 +61,8 @@ func _ready() -> void:
 	EventBus.llm_response_started.connect(_on_llm_started)
 	EventBus.llm_response_finished.connect(_on_llm_finished)
 	EventBus.system_error_occurred.connect(_on_system_error)
+	# 失败也需要收尾：否则请求一旦失败，界面会永久停在「思考中…」
+	EventBus.llm_response_failed.connect(_on_llm_failed)
 
 # ================= 背景 =================
 func _build_background() -> void:
@@ -1156,32 +1158,48 @@ func _on_send_pressed() -> void:
 
 ## 统一发送入口：把用户消息渲染到 UI 并交给 LLMClient
 func send_message(text: String) -> void:
+	var llm = get_node_or_null("/root/LLMClient")
+	# 先确认核心层能受理，再清空输入框、渲染气泡。
+	# 顺序反了的话，忙时会被 send_chat 直接拒绝，而界面已经把输入清掉、
+	# 气泡也画了出来，消息就被静默吞掉，还留下一个永不回复的气泡。
+	if llm and llm.is_busy():
+		toast("上一轮回复还在进行中，请稍候")
+		return
 	if _input_line:
 		_input_line.text = ""
 	if _msg_box:
 		_add_chat_message(_msg_box, "user", text)
-	var llm = get_node_or_null("/root/LLMClient")
 	if llm:
 		llm.send_chat(text)
 
-## LLM 开始请求：禁用发送按钮，变为"思考中"
-func _on_llm_started() -> void:
+## 忙碌开关：集中管理发送按钮与输入框的可操作性。
+## 忙碌的结束有两条出口（成功 finish / 失败 failed），两者都要走这里，
+## 才能保证「只要开始了，就一定会结束」。
+func _set_busy(busy: bool) -> void:
 	if _send_button:
-		_send_button.disabled = true
-		_send_button.text = "思考中…"
+		_send_button.disabled = busy
+		_send_button.text = "思考中…" if busy else "发送"
 	if _input_line:
-		_input_line.editable = false
+		_input_line.editable = not busy
 
-## LLM 回复完成：恢复发送按钮 + 追加回复气泡
+
+## LLM 开始请求：进入忙碌状态
+func _on_llm_started() -> void:
+	_set_busy(true)
+
+
+## LLM 回复完成：解除忙碌 + 追加回复气泡
 func _on_llm_finished(content: String) -> void:
-	if _send_button:
-		_send_button.disabled = false
-		_send_button.text = "发送"
-	if _input_line:
-		_input_line.editable = true
+	_set_busy(false)
 	if _msg_box:
 		_add_chat_message(_msg_box, "char", content)
 		_scroll_to_bottom()
+
+
+## LLM 请求失败收尾：只解除忙碌，不追加气泡。
+## 错误文案由 system_error_occurred 的 toast 负责，这里只管状态。
+func _on_llm_failed() -> void:
+	_set_busy(false)
 
 ## 倒回：回退会话历史 + 用历史重建全部气泡（保证 UI 与历史一致，停在 assistant）
 func _on_rollback() -> void:

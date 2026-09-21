@@ -170,6 +170,25 @@ func _merge_consecutive_user(user_text: String) -> bool:
 	return false
 
 
+## 当前是否有请求在途。供界面在清空输入框之前查询，避免消息被静默丢弃。
+func is_busy() -> bool:
+	return _is_requesting
+
+
+## 请求成功收尾：复位忙碌标记并发布正文
+func _finish_success(content: String) -> void:
+	_is_requesting = false
+	EventBus.llm_response_finished.emit(content)
+
+
+## 请求失败收尾：复位忙碌标记并发布收尾信号。
+## 这里不重复发 system_error_occurred —— 错误通知在各自的判定点已经发过，
+## 本函数只负责「结束状态」，保证每条终止路径恰好收尾一次。
+func _finish_failed() -> void:
+	_is_requesting = false
+	EventBus.llm_response_failed.emit()
+
+
 func _trigger_react_loop(loop_count: int) -> void:
 	if loop_count >= MAX_TOOL_LOOPS:
 		print("[LLMClient] ⚠️ 触发熔断！连续调用工具超过上限！")
@@ -229,7 +248,7 @@ func _trigger_react_loop(loop_count: int) -> void:
 	if err != OK:
 		print("[LLMClient] ❌ 请求发起失败！Error Code: ", err)
 		EventBus.system_error_occurred.emit("请求发起失败: Code " + str(err))
-		_is_requesting = false
+		_finish_failed()
 		return
 
 	var response = await _http_request.request_completed
@@ -261,14 +280,14 @@ func _trigger_react_loop(loop_count: int) -> void:
 		# 无法重试或重试耗尽：清理失败轮次，保证下次发送基于干净历史
 		print("[LLMClient] ❌ 最终失败（不可恢复/重试耗尽），清理失败轮次")
 		_cleanup_failed_round()
-		_is_requesting = false
+		_finish_failed()
 		return
 
 	var resp_json = JSON.parse_string(body.get_string_from_utf8())
 	if typeof(resp_json) != TYPE_DICTIONARY or not resp_json.has("choices"):
 		print("[LLMClient] ❌ 返回格式异常")
 		EventBus.system_error_occurred.emit("解析返回的 JSON 失败")
-		_is_requesting = false
+		_finish_failed()
 		return
 
 	var message = resp_json["choices"][0]["message"]
@@ -332,7 +351,7 @@ func _trigger_react_loop(loop_count: int) -> void:
 
 			var parser = ResponseParserScript.new()
 			parser.thinking_extracted.connect(func(t): pass)  # 已在上面打印
-			parser.content_extracted.connect(func(c): EventBus.llm_response_finished.emit(c))
+			parser.content_extracted.connect(func(c): _finish_success(c))
 			parser.format_error.connect(func():
 				var reminder = "[System: Format Correction] 刚刚的回复缺少 <content> 标签，导致解析器无法正常提取正文。请在下次输出时严格遵守格式规范：使用 <thinking>...</thinking> 包裹思考过程，使用 [使用简体中文开始游戏:] 作为分隔，使用 <content>...</content> 包裹正文。"
 				# 不把格式提醒追加为独立 system 历史（会污染历史结构、被误清理），
@@ -346,6 +365,14 @@ func _trigger_react_loop(loop_count: int) -> void:
 			)
 			parser.parse_full_response(full_text_for_parse)
 			parser.free()
+
+			# 兜底收尾：解析器在正文为空时（例如回复只有 <thinking> 而没有 <content>）
+			# 会直接 return，既不回正文也不报格式错误。上面那句 _finish_success 便不会执行，
+			# 请求就会一直挂着、界面卡在「思考中…」。此处按失败收尾，保证有去有回。
+			if _is_requesting:
+				print("[LLMClient] ⚠️ 解析器未给出正文，按失败收尾以恢复界面")
+				EventBus.system_error_occurred.emit("模型回复未包含正文（已附格式提醒，可重试）")
+				_finish_failed()
 		else:
 			# 文本+工具 → 只存历史，在控制台已打印日志
 			print("[LLMClient] 文本+工具调用，继续 ReAct 循环...")
@@ -363,7 +390,7 @@ func _trigger_react_loop(loop_count: int) -> void:
 			return
 
 		EventBus.system_error_occurred.emit("遭到安全审查拦截，多次重试失败。")
-		_is_requesting = false
+		_finish_failed()
 		return
 
 	if has_tools:
@@ -371,7 +398,7 @@ func _trigger_react_loop(loop_count: int) -> void:
 		if _tool_executor == null:
 			print("[LLMClient] ❌ 模型返回工具调用，但工具执行器不存在")
 			EventBus.system_error_occurred.emit("工具执行器不可用，已终止")
-			_is_requesting = false
+			_finish_failed()
 			return
 		for tc in message["tool_calls"]:
 			var func_name = tc["function"]["name"]
@@ -386,7 +413,7 @@ func _trigger_react_loop(loop_count: int) -> void:
 			})
 		_trigger_react_loop(loop_count + 1)
 	else:
-		print("[LLMClient] ✅ 最终回复已发送到 UI")
+		print("[LLMClient] ✅ 请求已结束")
 		_is_requesting = false
 
 
