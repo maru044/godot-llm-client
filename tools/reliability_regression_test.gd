@@ -68,6 +68,7 @@ func _ready() -> void:
 	await _test_save_failures(old_meta, marker)
 	await _test_session_isolation()
 	await _test_responses()
+	await _test_plain_response()
 	await _test_retries()
 	var output := FileAccess.open("res://reliability-results.json", FileAccess.WRITE)
 	output.store_string(JSON.stringify({"checks": checks, "failures": failures}, "  "))
@@ -179,4 +180,22 @@ func _test_retries() -> void:
 	var previous := probe_calls
 	_send("/tool-limit")
 	await _wait_done()
-	_check(probe_calls == previous + 5 and JSON.stringify(LLMClient._chat_history).contains("达到工具调用上限"), "真正的五轮工具调用仍触发上限")
+	_check(probe_calls == previous + 5, "真正的五轮工具调用仍触发上限")
+	_check(not JSON.stringify(LLMClient._chat_history).contains(LLMClient.TOOL_LIMIT_MESSAGE), "上限提示不污染历史")
+	_check(LLMClient.rollback_history() == "test" and LLMClient._chat_history.is_empty(), "工具上限后完整倒回用户轮次")
+	LLMClient.api_url = base_url + "/text"
+	LLMClient.send_chat("AFTER_LIMIT")
+	await _wait_done()
+	_check(LLMClient._chat_history.size() == 2, "工具上限倒回后能重新发送")
+
+
+func _test_plain_response() -> void:
+	var before := finished_signals
+	_send("/plain")
+	await _wait_done()
+	_check(finished_signals == before + 1 and LLMClient._chat_history.back().content == "PLAIN_REPLY", "无标签正文正常结束且未被格式提醒改写")
+	_check(LLMClient._chat_history.back().get("format_error", false), "无标签回复记录格式提醒标记")
+	LLMClient.api_url = base_url + "/plain-next"
+	LLMClient.send_chat("NEXT")
+	await _wait_done()
+	_check(LLMClient._chat_history.size() == 4, "格式提醒后下一轮仍正常完成")

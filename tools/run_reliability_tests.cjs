@@ -52,6 +52,7 @@ const server = http.createServer((req, res) => {
     if (route === '/empty-tool' && counts[route] <= 5) reply = { choices: [{ message: { content: '' } }] };
     if (route === '/empty-tool' && counts[route] === 6) reply = tools;
     if (route === '/tool-limit' && counts[route] <= 5) reply = tools;
+    if (route === '/plain') reply = { choices: [{ message: { role: 'assistant', content: 'PLAIN_REPLY' } }] };
     if (route.startsWith('/invalid/')) reply = malformed[Number(route.split('/').pop())];
     if (route === '/bad-json') reply = 'NOT_JSON';
     const response = typeof reply === 'string' ? reply : JSON.stringify(reply);
@@ -82,9 +83,11 @@ async function main() {
   fs.writeFileSync(path.join(data, 'config.cfg'), `[llm]\nactive_api="custom"\napi_url="http://127.0.0.1:${port}/text"\napi_key="test-placeholder"\nmodel="offline-test"\n`);
   fs.writeFileSync(path.join(isolated, 'project.godot'), `config_version=5\n[application]\nconfig/name="LLM Reliability Tests"\n[autoload]\n${['ConfigManager','EventBus','SaveManager','DataManager','PromptSchema','LLMToolExecutor','LLMClient'].map(n => `${n}="*res://scripts/${n}.gd"`).join('\n')}\n[rendering]\nrenderer/rendering_method="gl_compatibility"\n`);
   fs.writeFileSync(path.join(isolated, 'tools/reliability_regression_test.tscn'), '[gd_scene load_steps=2 format=3]\n[ext_resource type="Script" path="res://tools/reliability_regression_test.gd" id="1"]\n[node name="Test" type="Node"]\nscript = ExtResource("1")\n');
+  fs.writeFileSync(path.join(isolated, 'tools/audit_fix_regression_test.tscn'), '[gd_scene load_steps=2 format=3]\n[ext_resource type="Script" path="res://tools/audit_fix_regression_test.gd" id="1"]\n[node name="Test" type="Node"]\nscript = ExtResource("1")\n');
   console.log('Isolated test directory:', isolated);
   await run(['--editor', '--import', '--quit']);
   await run(['res://tools/reliability_regression_test.tscn']);
+  await run(['res://tools/audit_fix_regression_test.tscn']);
   for (const name of ['save_load', 'new_game_clean', 'history_clean', 'rollback_tool', 'timeout', 'busy_state']) {
     await run([`res://tools/${name}_test.tscn`]);
   }
@@ -100,6 +103,13 @@ async function main() {
     check(bodies[route].every(body => JSON.parse(body).tools), `${route}: retry consumed tools budget`);
   }
   check(counts['/tool-limit'] === 6 && !JSON.parse(bodies['/tool-limit'][5]).tools, 'Actual tool loop limit was not enforced');
+  const limitPayloads = bodies['/tool-limit'].map(body => JSON.parse(body));
+  check(limitPayloads.slice(0, 5).every(body => !body.messages.some(message => message.role === 'system' && message.content.includes('达到工具调用上限'))), 'Tool limit instruction appeared too early');
+  check(limitPayloads[5].messages.some(message => message.role === 'system' && message.content.includes('达到工具调用上限')), 'Final tool request missing limit instruction');
+  const plainNext = JSON.parse(bodies['/plain-next'][0]);
+  check(plainNext.messages.some(message => message.role === 'system' && message.content.startsWith('[System: Format Correction]')), 'Format correction missing from next request');
+  check(plainNext.messages.find(message => message.role === 'assistant' && message.content === 'PLAIN_REPLY'), 'Plain reply changed in transport history');
+  check(plainNext.messages.every(message => !Object.hasOwn(message, 'format_error')), 'Local format metadata leaked into API messages');
   fs.writeFileSync(path.join(isolated, 'http-evidence.json'), JSON.stringify({ counts, retry_payloads_identical: true }, null, 2));
   console.log('ALL_RELIABILITY_TESTS_PASSED');
   console.log('Evidence:', isolated);

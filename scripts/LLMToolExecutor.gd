@@ -122,7 +122,8 @@ func _handler_write_character(args: Dictionary) -> String:
 		"status": "Idle",
 	}
 	# 一次性写入骨架 + 正文，避免 create_new_character + llm_append_body 分两次落盘
-	dm.create_character_with_body(header, content)
+	if not dm.create_character_with_body(header, content):
+		return JSON.stringify({"status": "error", "message": dm.last_error})
 
 	return JSON.stringify({"status": "success", "char_id": char_id})
 
@@ -138,7 +139,7 @@ func _handler_update_character(args: Dictionary) -> String:
 	var ok = dm.llm_update_section(char_id, section, content)
 	if ok:
 		return '{"status": "success", "message": "Section updated."}'
-	return '{"status": "error", "message": "Character not found."}'
+	return JSON.stringify({"status": "error", "message": dm.last_error})
 
 
 ## 预留：生成一个 tool_call id（若需要手动构造）

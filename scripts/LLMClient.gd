@@ -16,6 +16,8 @@ var api_top_p: float = 0.88
 const MAX_TOOL_LOOPS = 5
 const MAX_NETWORK_RETRIES = 5
 const MAX_EMPTY_RETRIES = 5
+const TOOL_LIMIT_MESSAGE := "[强制指令：你已达到工具调用上限，请立刻输出最终的文字回复]"
+const FORMAT_CORRECTION_MESSAGE := "[System: Format Correction] 刚刚的回复缺少 <content> 标签，导致解析器无法正常提取正文。请在下次输出时严格遵守格式规范：使用 <thinking>...</thinking> 包裹思考过程，使用 [使用简体中文开始游戏:] 作为分隔，使用 <content>...</content> 包裹正文。"
 var _request_generation: int = 0
 
 var _chat_history: Array = []
@@ -63,31 +65,24 @@ func reset_history() -> void:
 func rollback_history() -> String:
 	if is_busy():
 		return ""
-	var rolled_user_text := ""
-
-	# 从末尾往回走，直到遇到并移除一条 user 消息
-	while _chat_history.size() > 0:
-		var last = _chat_history.back()
-		var role = last.get("role", "")
-
+	# 先确认整个可撤销范围，遇到设定边界时不能先删掉末尾回复。
+	for index in range(_chat_history.size() - 1, -1, -1):
+		var msg: Dictionary = _chat_history[index]
+		var role: String = msg.get("role", "")
 		if role == "user":
-			# 找到用户轮次，取出其原始文本后移除
-			var txt = last.get("content", "")
-			var prefix_idx = txt.find("：")
-			if prefix_idx != -1:
-				txt = txt.substr(prefix_idx + 1)
-			txt = txt.replace("]} ｝", "").strip_edges()
-			rolled_user_text = txt
-			_chat_history.pop_back()
-			break
-		elif role in ["assistant", "tool"]:
-			# assistant 及其伴随的 tool 消息一并移除
-			_chat_history.pop_back()
-		else:
-			# system 等其他消息遇到则停止（避免误删设定）
-			break
+			var txt: String = msg.get("content", "")
+			var prefix := "{[Master最新行动/语言："
+			if txt.begins_with(prefix):
+				txt = txt.trim_prefix(prefix).trim_suffix("]} ｝")
+			_chat_history.resize(index)
+			return txt
+		if role not in ["assistant", "tool"] and not _is_tool_limit_message(msg):
+			return ""
+	return ""
 
-	return rolled_user_text
+
+static func _is_tool_limit_message(msg: Dictionary) -> bool:
+	return msg.get("role") == "system" and msg.get("content") == TOOL_LIMIT_MESSAGE
 
 
 func inject_system_message(content: String) -> void:
@@ -181,7 +176,11 @@ func cancel_active_request() -> void:
 
 func begin_session(history: Array = []) -> void:
 	cancel_active_request()
-	_chat_history = history.duplicate(true)
+	_chat_history = []
+	for msg in history:
+		# 仅移除旧版本生成的精确上限提示，其余 system 设定保留。
+		if not _is_tool_limit_message(msg):
+			_chat_history.append(msg.duplicate(true))
 
 
 func _finish_success(token: int, content: String) -> void:
@@ -204,8 +203,6 @@ func _fail(token: int, message: String) -> void:
 func _trigger_react_loop(token: int, tool_loops: int, network_retries: int, empty_retries: int) -> void:
 	if not _owns_request(token):
 		return
-	if tool_loops == MAX_TOOL_LOOPS:
-		_chat_history.append({"role": "system", "content": "[强制指令：你已达到工具调用上限，请立刻输出最终的文字回复]"})
 	var messages: Array = []
 	var ps = get_node_or_null("/root/PromptSchema")
 	if ps:
@@ -213,6 +210,17 @@ func _trigger_react_loop(token: int, tool_loops: int, network_retries: int, empt
 		if system_content != "":
 			messages.append({"role": "system", "content": system_content})
 	messages.append_array(_chat_history.duplicate(true))
+	for msg in messages:
+		msg.erase("format_error")  # 本地显示元数据不属于 API message schema。
+	if tool_loops == MAX_TOOL_LOOPS:
+		messages.append({"role": "system", "content": TOOL_LIMIT_MESSAGE})
+	# 格式提醒属于传输上下文，不得把含标签的提醒拼进用户可见正文。
+	for index in range(_chat_history.size() - 1, -1, -1):
+		var msg: Dictionary = _chat_history[index]
+		if msg.get("role") == "assistant" and msg.get("tool_calls") == null:
+			if msg.get("format_error", false):
+				messages.append({"role": "system", "content": FORMAT_CORRECTION_MESSAGE})
+			break
 	messages.append({"role": "assistant", "content": PREFILL_MAGIC})
 	var payload := {"model": model_name, "messages": messages, "temperature": api_temp, "top_p": api_top_p, "max_tokens": 65536}
 	var cm = get_node_or_null("/root/ConfigManager")
@@ -299,9 +307,9 @@ func _send_attempt(token: int, tool_loops: int, network_retries: int, empty_retr
 	parser.content_extracted.connect(func(text): _finish_success(token, text))
 	parser.format_error.connect(func():
 		if _owns_request(token):
-			_chat_history.back()["content"] += "\n\n[System: Format Correction] 刚刚的回复缺少 <content> 标签，导致解析器无法正常提取正文。请在下次输出时严格遵守格式规范：使用 <thinking>...</thinking> 包裹思考过程，使用 [使用简体中文开始游戏:] 作为分隔，使用 <content>...</content> 包裹正文。"
+			_chat_history.back()["format_error"] = true
 	)
-	parser.parse_full_response(PREFILL_MAGIC + content)
+	parser.parse_full_response(content)
 	parser.free()
 	if _owns_request(token):
 		_fail(token, "模型回复未包含正文，可重试。")

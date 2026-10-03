@@ -11,6 +11,7 @@ class_name DataManagerClass
 var _characters_cache: Dictionary = {}
 
 var viewing_char_id: String = ""
+var last_error: String = ""
 
 
 func _ready() -> void:
@@ -51,6 +52,12 @@ func _load_all_characters() -> void:
 	var dir = DirAccess.open(char_dir)
 	if not dir:
 		return
+
+	# 中断替换时旧文件留在 .backup；先恢复，再解析正式的 .md。
+	for name in dir.get_files():
+		if name.ends_with(".md.backup") or name.ends_with(".md.pending"):
+			if not _recover_character_file(char_dir + name.get_basename()):
+				push_warning(last_error)
 
 	dir.list_dir_begin()
 	var file_name = dir.get_next()
@@ -102,52 +109,52 @@ func get_character(char_id: String) -> Dictionary:
 
 
 ## 写入一个全新的角色（由程序生成骨架后调用）
-func create_new_character(header: Dictionary) -> void:
+func create_new_character(header: Dictionary) -> bool:
 	var char_id = header.get("id", "")
 	if char_id == "":
-		return
+		return _write_error("角色 id 不能为空")
 
 	var path = _get_current_save_path()
-	if not DirAccess.dir_exists_absolute(path + "characters/"):
-		DirAccess.make_dir_recursive_absolute(path + "characters/")
 	var full_path = path + "characters/" + char_id + ".md"
 
-	_characters_cache[char_id] = {
-		"header": header,
+	var data := {
+		"header": header.duplicate(true),
 		"body": "",
 		"file_path": full_path
 	}
 
-	_flush_to_disk(char_id)
+	if not _commit_character(char_id, data):
+		return false
 	EventBus.roster_updated.emit()
+	return true
 
 
-## 一次性写入新角色（骨架 + 正文一次落盘，避免分两次 _flush_to_disk）
+## 一次性写入新角色（骨架 + 正文作为同一份快照提交）
 ## 供 write_character_file 等工具使用；同时写内存缓存，避免重复落盘
-func create_character_with_body(header: Dictionary, body: String) -> void:
+func create_character_with_body(header: Dictionary, body: String) -> bool:
 	var char_id = header.get("id", "")
 	if char_id == "":
-		return
+		return _write_error("角色 id 不能为空")
 
 	# 文件名用角色名（更直观，便于按名 read）；净化非法字符，重名加唯一后缀兜底
 	var safe_name := _safe_filename(header.get("name", char_id))
 	var path = _get_current_save_path()
-	if not DirAccess.dir_exists_absolute(path + "characters/"):
-		DirAccess.make_dir_recursive_absolute(path + "characters/")
 	var full_path = path + "characters/" + safe_name + ".md"
 	# 若目标文件存在（罕见重名），追加 char_id 后缀避免覆盖
 	if FileAccess.file_exists(full_path):
 		full_path = path + "characters/" + safe_name + "_" + char_id + ".md"
 
-	_characters_cache[char_id] = {
-		"header": header,
+	var data := {
+		"header": header.duplicate(true),
 		"body": body,
 		"file_path": full_path,
 	}
 
-	_flush_to_disk(char_id)
+	if not _commit_character(char_id, data):
+		return false
 	EventBus.character_updated.emit(char_id)
 	EventBus.roster_updated.emit()
+	return true
 
 
 ## 文件名净化：替换 Windows 非法字符，避免角色名导致路径错误
@@ -170,31 +177,37 @@ func is_favorited(char_id: String) -> bool:
 func toggle_favorite(char_id: String) -> bool:
 	if not _characters_cache.has(char_id):
 		return false
-	var header = _characters_cache[char_id]["header"]
+	var data: Dictionary = _characters_cache[char_id].duplicate(true)
+	var header: Dictionary = data["header"]
 	header["favorited"] = not header.get("favorited", false)
-	_flush_to_disk(char_id)
+	if not _commit_character(char_id, data):
+		return is_favorited(char_id)
 	EventBus.character_updated.emit(char_id)
 	EventBus.roster_updated.emit()
 	return header["favorited"]
 
 
-func update_character_header(char_id: String, new_header: Dictionary) -> void:
+func update_character_header(char_id: String, new_header: Dictionary) -> bool:
 	if not _characters_cache.has(char_id):
-		return
-	_characters_cache[char_id]["header"] = new_header
-	_flush_to_disk(char_id)
+		return _write_error("Character not found.")
+	var data: Dictionary = _characters_cache[char_id].duplicate(true)
+	data["header"] = new_header.duplicate(true)
+	if not _commit_character(char_id, data):
+		return false
 	EventBus.character_updated.emit(char_id)
+	return true
 
 
 ## 大模型专用工具：追加 Markdown 正文（通常只在捕获时调用一次）
 func llm_append_body(char_id: String, content: String) -> bool:
 	if not _characters_cache.has(char_id):
+		return _write_error("Character not found.")
+
+	var data: Dictionary = _characters_cache[char_id].duplicate(true)
+	data["body"] += "\n\n" + content
+
+	if not _commit_character(char_id, data):
 		return false
-
-	var old_body = _characters_cache[char_id]["body"]
-	_characters_cache[char_id]["body"] = old_body + "\n\n" + content
-
-	_flush_to_disk(char_id)
 	EventBus.character_updated.emit(char_id)
 	return true
 
@@ -202,26 +215,32 @@ func llm_append_body(char_id: String, content: String) -> bool:
 ## 大模型专用工具：替换某个 ### 分栏的内容
 func llm_update_section(char_id: String, section_name: String, content: String) -> bool:
 	if not _characters_cache.has(char_id):
-		return false
+		return _write_error("Character not found.")
 
-	var body = _characters_cache[char_id]["body"]
-	var marker = "### " + section_name
-	var idx = body.find(marker)
+	var data: Dictionary = _characters_cache[char_id].duplicate(true)
+	var body: String = data["body"]
+	var marker := "### " + section_name
+	var headings := RegEx.new()
+	headings.compile("(?m)^### [^\\r\\n]*(?:\\r?\\n|$)")
+	var sections := headings.search_all(body)
+	var matched := -1
+	for index in range(sections.size()):
+		if sections[index].get_string().strip_edges() == marker:
+			matched = index
+			break
 
-	if idx == -1:
+	if matched == -1:
 		# 没找到栏目，追加到末尾
 		body += "\n\n" + marker + "\n" + content
 	else:
-		# 找到栏目开始位置，找下一个 ### 或末尾
-		var content_start = body.find("\n", idx) + 1  # 跳过 ### 行
-		var next_section = body.find("\n### ", content_start)
-		if next_section == -1:
-			body = body.substr(0, content_start) + content + "\n"
-		else:
-			body = body.substr(0, content_start) + content + "\n" + body.substr(next_section)
+		var content_start: int = sections[matched].get_end()
+		var next_section: int = sections[matched + 1].get_start() if matched + 1 < sections.size() else body.length()
+		var separator := "" if sections[matched].get_string().ends_with("\n") else "\n"
+		body = body.substr(0, content_start) + separator + content + "\n" + body.substr(next_section)
 
-	_characters_cache[char_id]["body"] = body
-	_flush_to_disk(char_id)
+	data["body"] = body
+	if not _commit_character(char_id, data):
+		return false
 	EventBus.character_updated.emit(char_id)
 	return true
 
@@ -230,19 +249,69 @@ func llm_update_section(char_id: String, section_name: String, content: String) 
 ## 内部写盘逻辑
 ## ==================================================
 
-func _flush_to_disk(char_id: String) -> void:
-	if not _characters_cache.has(char_id):
-		return
-	var data = _characters_cache[char_id]
-	var full_path = data["file_path"]
+func _write_error(message: String) -> bool:
+	last_error = message
+	print("[DataManager] ", message)
+	return false
 
-	var json_str = JSON.stringify(data["header"], "  ")
 
-	var final_content = "---\n" + json_str + "\n---\n\n" + data["body"]
+## 写盘成功才提交缓存；失败时调用方和更新信号都不能宣告成功。
+func _commit_character(char_id: String, data: Dictionary) -> bool:
+	last_error = ""
+	var full_path: String = data["file_path"]
+	if DirAccess.make_dir_recursive_absolute(full_path.get_base_dir()) != OK:
+		return _write_error("无法创建角色目录")
+	if not _recover_character_file(full_path):
+		return false
+	var pending := full_path + ".pending"
+	var backup := full_path + ".backup"
+	var serialized: String = "---\n" + JSON.stringify(data["header"], "  ") + "\n---\n\n" + data["body"]
+	if not _write_pending_character_file(pending, serialized):
+		return false
+	var had_old := FileAccess.file_exists(full_path)
+	if had_old and _rename_character_file(full_path, backup) != OK:
+		return _write_error("无法保留旧角色文件，已停止替换")
+	if _rename_character_file(pending, full_path) != OK:
+		if had_old and _rename_character_file(backup, full_path) != OK:
+			return _write_error("角色替换及恢复失败，旧内容保留在: " + backup)
+		return _write_error("角色写入失败，旧内容已保留")
+	_characters_cache[char_id] = data
+	if had_old and DirAccess.remove_absolute(backup) != OK:
+		push_warning("角色已保存，旧备份待下次加载清理: " + backup)
+	last_error = ""
+	print("[DataManager] 成功写盘: ", char_id)
+	return true
 
-	var fw = FileAccess.open(full_path, FileAccess.WRITE)
-	if fw:
-		fw.store_string(final_content)
-		print("[DataManager] 成功写盘: ", char_id)
-	else:
-		push_error("[DataManager] 写入失败: ", full_path)
+
+func _write_pending_character_file(path: String, content: String) -> bool:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return _write_error("无法写入角色文件（错误 %d）" % FileAccess.get_open_error())
+	file.store_string(content)
+	file.flush()
+	var err := file.get_error()
+	file.close()
+	if err != OK or FileAccess.get_file_as_string(path) != content:
+		return _write_error("角色文件写入或回读校验失败")
+	return true
+
+
+## 包装重命名供隔离测试注入失败，生产路径保持同目录替换。
+func _rename_character_file(source: String, dest: String) -> Error:
+	return DirAccess.rename_absolute(source, dest)
+
+
+func _recover_character_file(path: String) -> bool:
+	if DirAccess.dir_exists_absolute(path):
+		return _write_error("角色文件路径被目录占用")
+	var backup := path + ".backup"
+	var pending := path + ".pending"
+	if FileAccess.file_exists(backup):
+		if not FileAccess.file_exists(path):
+			if _rename_character_file(backup, path) != OK:
+				return _write_error("无法恢复角色备份: " + backup)
+		elif DirAccess.remove_absolute(backup) != OK:
+			return _write_error("无法清理旧角色备份")
+	if FileAccess.file_exists(pending) and DirAccess.remove_absolute(pending) != OK:
+		return _write_error("无法清理未提交的角色文件")
+	return true

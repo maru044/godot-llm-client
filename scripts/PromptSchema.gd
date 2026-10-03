@@ -137,14 +137,14 @@ func create_entry(name: String, depth: int, role: String, content: String) -> St
 		target = _active_version_dir + safe_name + "_%d.md" % counter
 		counter += 1
 
-	var front := "{ \"depth\": %d, \"name\": \"%s\", \"role\": \"%s\", \"enabled\": true }\n---\n\n" % [depth, safe_name, role]
+	var front := _serialize_entry_header(safe_name, depth, role)
 	var fw := FileAccess.open(target, FileAccess.WRITE)
 	if fw:
 		fw.store_string(front + content)
 		fw = null  # 释放文件锁，确保写盘落定后再 reload
 		reload()
 		EventBus.prompt_entries_changed.emit()
-		return safe_name + ".md"
+		return target.get_file()
 	return ""
 
 
@@ -154,7 +154,7 @@ func update_entry(file_name: String, name: String, depth: int, role: String, con
 	if not FileAccess.file_exists(path):
 		return false
 	var safe_name := name.strip_edges() if name != "" else file_name.replace(".md", "")
-	var front := "{ \"depth\": %d, \"name\": \"%s\", \"role\": \"%s\", \"enabled\": true }\n---\n\n" % [depth, safe_name, role]
+	var front := _serialize_entry_header(safe_name, depth, role)
 	var fw := FileAccess.open(path, FileAccess.WRITE)
 	if fw:
 		fw.store_string(front + content)
@@ -163,6 +163,10 @@ func update_entry(file_name: String, name: String, depth: int, role: String, con
 		EventBus.prompt_entries_changed.emit()
 		return true
 	return false
+
+
+func _serialize_entry_header(name: String, depth: int, role: String) -> String:
+	return JSON.stringify({"depth": depth, "name": name, "role": role, "enabled": true}) + "\n---\n\n"
 
 
 ## 删除条目（删除 .md 文件）

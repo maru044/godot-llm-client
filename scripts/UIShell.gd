@@ -7,6 +7,7 @@ extends Control
 const Palette = preload("res://scripts/Palette.gd")
 const UI = preload("res://scripts/UITheme.gd")
 const BG_SHADER = preload("res://shaders/background.gdshader")
+const ResponseParserScript = preload("res://scripts/ResponseParser.gd")
 
 var _screens: Dictionary = {}       # id -> Control
 var _overlays: Dictionary = {}      # id -> Control
@@ -1270,18 +1271,18 @@ func _rebuild_chat_from_history(history: Array) -> void:
 	for m in history:
 		var role = (m as Dictionary).get("role", "")
 		if role == "user":
-			var txt = String(m.get("content", ""))
+			var txt: String = m.get("content", "") if m.get("content") != null else ""
 			var clean = _strip_user_wrap(txt)
 			if clean.strip_edges() != "":
 				_add_chat_message(_msg_box, "user", clean)
 		elif role == "assistant":
-			var txt = String(m.get("content", ""))
 			# 跳过带 tool_calls 的 assistant（那是工具调用过程，非终稿正文）
 			# 以及 prefill 残留/空正文，避免 UI 多出中间气泡
 			if m.has("tool_calls") and m.get("tool_calls") != null:
 				continue
-			if txt.strip_edges() != "" and not txt.begins_with("</think>"):
-				var clean = txt.replace("<content>", "").replace("</content>", "").replace("[使用简体中文开始游戏:]", "").strip_edges()
+			var txt: String = m.get("content", "") if m.get("content") != null else ""
+			if txt.strip_edges() != "":
+				var clean: String = ResponseParserScript.extract_content(txt)
 				if clean.strip_edges() != "":
 					_add_chat_message(_msg_box, "char", clean)
 	_scroll_to_bottom()
