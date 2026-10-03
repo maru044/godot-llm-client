@@ -1226,7 +1226,7 @@ func _on_save_slot(idx: int) -> void:
 	if sm == null:
 		return
 	var ok = sm.save_current_game(idx)
-	toast("已存入槽位 #%d" % (idx + 1) if ok else "保存失败")
+	toast("已存入槽位 #%d" % (idx + 1) if ok else "保存失败：" + sm.last_error)
 	_refresh_save_slots()
 
 ## 从槽位读取游戏并还原历史气泡，然后直接进入游戏界面
@@ -1236,7 +1236,7 @@ func _on_load_slot(idx: int) -> void:
 		return
 	var data = sm.load_game_from_slot(idx)
 	if data.is_empty():
-		toast("槽位 #%d 为空" % (idx + 1))
+		toast("读取失败：" + sm.last_error)
 		return
 	# 读档后重载角色缓存（槽位已复制到 temp_run，载入该槽位的角色）
 	var dm = get_node_or_null("/root/DataManager")
@@ -1254,8 +1254,8 @@ func _on_delete_slot(idx: int) -> void:
 	var sm = get_node_or_null("/root/SaveManager")
 	if sm == null:
 		return
-	sm.delete_slot(idx)
-	toast("已删除槽位 #%d" % (idx + 1))
+	var ok = sm.delete_slot(idx)
+	toast("已删除槽位 #%d" % (idx + 1) if ok else "删除失败：" + sm.last_error)
 	_refresh_save_slots()
 
 ## 依据会话历史重建消息气泡（读档/还原用）
@@ -1309,16 +1309,13 @@ func _scroll_to_bottom() -> void:
 ## 开始游戏：初始化新的临时存档（清空旧 temp_run/历史），再进入聊天页
 func _on_start_game() -> void:
 	var sm = get_node_or_null("/root/SaveManager")
-	if sm:
-		sm.create_new_game()
+	if sm and not sm.create_new_game():
+		toast("创建新游戏失败：" + sm.last_error)
+		return
 	# 显式强制 DataManager 清缓存并重载 temp_run（时序无关，避免残留旧存档角色）
 	var dm = get_node_or_null("/root/DataManager")
 	if dm:
 		dm.reload_characters()
-	# 清空内存中的会话历史，避免旧记忆影响新游戏
-	var llm = get_node_or_null("/root/LLMClient")
-	if llm:
-		llm.reset_history()
 	# 清空聊天气泡
 	if _msg_box:
 		for child in _msg_box.get_children():
